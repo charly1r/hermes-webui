@@ -235,7 +235,7 @@ else
   test -x /app/venv/bin/pip
 
   echo ""; echo "== Adding hermes-agent's pyproject.toml base dependencies to the virtual environment"
-  uv pip install /home/hermeswebui/.hermes/hermes-agent --trusted-host pypi.org --trusted-host files.pythonhosted.org || error_exit "Failed to install hermes-agent's requirements"
+  uv pip install "/home/hermeswebui/.hermes/hermes-agent[honcho]" --trusted-host pypi.org --trusted-host files.pythonhosted.org || error_exit "Failed to install hermes-agent's requirements"
   touch /app/venv/.deps_installed
 fi
 
