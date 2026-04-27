@@ -556,13 +556,14 @@ def all_sessions():
                         active_stream_ids=active_stream_ids,
                     )
             result = sorted(index_map.values(), key=lambda s: (s.get('pinned', False), _session_sort_timestamp(s)), reverse=True)
-            # Hide empty Untitled sessions from the UI (created by tests, page refreshes, etc.)
-            # Exempt sessions younger than 60 s so a brand-new session stays visible (#789)
-            _now = time.time()
+            # Hide empty Untitled sessions from the UI entirely — they are ephemeral
+            # scratch pads that only become real once the first message is sent (#1171).
+            # No grace window: a 0-message Untitled session is never shown in the list
+            # regardless of age. This means page refreshes and accidental New Conversation
+            # clicks never leave orphan entries in the sidebar.
             result = [s for s in result if not (
                 s.get('title', 'Untitled') == 'Untitled'
                 and s.get('message_count', 0) == 0
-                and (_now - s.get('updated_at', _now)) > 60
             )]
             result = [s for s in result if not _hide_from_default_sidebar(s)]
             # Backfill: sessions created before Sprint 22 have no profile tag.
@@ -585,11 +586,12 @@ def all_sessions():
     for s in SESSIONS.values():
         if all(s.session_id != x.session_id for x in out): out.append(s)
     out.sort(key=lambda s: (getattr(s, 'pinned', False), _session_sort_timestamp(s)), reverse=True)
-    _now = time.time()
+    # Hide empty Untitled sessions from the UI entirely — kept consistent with the
+    # index-path filter above. No grace window: a 0-message Untitled session is
+    # never shown regardless of age (#1171).
     result = [s.compact(include_runtime=True, active_stream_ids=active_stream_ids) for s in out if not (
         s.title == 'Untitled'
         and len(s.messages) == 0
-        and (_now - s.updated_at) > 60
     )]
     result = [s for s in result if not _hide_from_default_sidebar(s)]
     for s in result:

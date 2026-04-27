@@ -772,6 +772,23 @@ def handle_get(handler, parsed) -> bool:
         load_messages = query.get("messages", ["1"])[0] != "0"
         resolve_model_default = "1" if load_messages else "0"
         resolve_model = query.get("resolve_model", [resolve_model_default])[0] != "0"
+        # ?msg_limit=N returns only the last N messages (tail window).
+        # Used by the frontend for fast session switching — avoids serialising
+        # and sending hundreds of messages when the user only sees the most
+        # recent exchange.  Older messages are loaded on-demand via scrolling.
+        _msg_limit = query.get("msg_limit", [None])[0]
+        try:
+            msg_limit = max(1, int(_msg_limit)) if _msg_limit else None
+        except (ValueError, TypeError):
+            msg_limit = None
+        # ?msg_before=N — 0-based index into the full message array.
+        # Returns messages before this index (for scroll-to-top lazy loading).
+        # Combined with msg_limit for paging.
+        _msg_before = query.get("msg_before", [None])[0]
+        try:
+            msg_before = int(_msg_before) if _msg_before else None
+        except (ValueError, TypeError):
+            msg_before = None
         try:
             _t1 = _time.monotonic()
             s = get_session(sid, metadata_only=(not load_messages))
@@ -782,14 +799,46 @@ def handle_get(handler, parsed) -> bool:
                 else None
             )
             _t3 = _time.monotonic()
+            _all_msgs = s.messages if load_messages else []
+            if load_messages:
+                if msg_before is not None:
+                    # Scroll-to-top paging: msg_before is a 0-based index into
+                    # the full message list. Return the msg_limit messages that
+                    # appear *before* this index (i.e. older messages).
+                    # Using index instead of timestamp avoids issues with
+                    # duplicate/missing timestamps.
+                    _before_idx = max(0, min(int(msg_before), len(_all_msgs)))
+                    _slice = _all_msgs[:_before_idx]
+                    _truncated_msgs = _slice[-msg_limit:] if msg_limit else _slice
+                elif msg_limit and len(_all_msgs) > msg_limit:
+                    _truncated_msgs = _all_msgs[-msg_limit:]
+                else:
+                    _truncated_msgs = _all_msgs
+            else:
+                _truncated_msgs = _all_msgs
             raw = s.compact() | {
-                "messages": s.messages if load_messages else [],
+                "messages": _truncated_msgs,
                 "tool_calls": getattr(s, "tool_calls", []) if load_messages else [],
                 "active_stream_id": getattr(s, "active_stream_id", None),
                 "pending_user_message": getattr(s, "pending_user_message", None),
                 "pending_attachments": getattr(s, "pending_attachments", []) if load_messages else [],
                 "pending_started_at": getattr(s, "pending_started_at", None),
             }
+            # Signal to the frontend that older messages were omitted.
+            # For msg_before paging, compare against the filtered set,
+            # not the full list — otherwise we signal truncation even when
+            # all older messages were returned.
+            if msg_before is not None:
+                _truncated = load_messages and msg_limit is not None and len(_slice) > msg_limit
+            else:
+                _truncated = load_messages and msg_limit is not None and len(_all_msgs) > msg_limit
+            raw["_messages_truncated"] = _truncated
+            # Index of the first returned message in the full message array.
+            # Frontend uses this as cursor for scroll-to-top paging.
+            if msg_before is not None:
+                raw["_messages_offset"] = max(0, _before_idx - len(_truncated_msgs))
+            else:
+                raw["_messages_offset"] = max(0, len(_all_msgs) - len(_truncated_msgs))
             _t4 = _time.monotonic()
             if effective_model:
                 raw["model"] = effective_model

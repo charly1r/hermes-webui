@@ -117,6 +117,9 @@ async function loadSession(sid){
   if (currentSid !== sid) {
     S.messages = [];
     S.toolCalls = [];
+    _messagesTruncated = false;
+    _oldestIdx = 0;
+    _loadingOlder = false;
     const _msgInner = $('msgInner');
     if (_msgInner) _msgInner.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:14px;padding:40px;text-align:center;">Loading conversation...</div>';
   }
@@ -263,7 +266,12 @@ async function loadSession(sid){
       setStatus('');
       setComposerStatus('');
       updateQueueBadge(sid);
-      syncTopbar();renderMessages();highlightCode();loadDir('.');
+      syncTopbar();renderMessages();
+      // Kick off loadDir first (issues network requests), then highlight code.
+      // The fetch is dispatched before the CPU-bound Prism pass begins.
+      const _dirP=loadDir('.');
+      highlightCode();
+      await _dirP;
     }
   }
 
@@ -302,17 +310,28 @@ function _resolveSessionModelForDisplaySoon(sid){
   },0);
 }
 
+// Tracks whether the current session has older messages that were not
+// loaded during the initial paginated fetch (msg_limit window).
+// When true, scrolling to the top triggers _loadOlderMessages().
+let _messagesTruncated = false;
+
 // Load session messages if not already present.
 // Called after loadSession fetches metadata (messages=0).
 // Idempotent: if messages are already in S.messages, resolves immediately.
 // Handles streaming sessions specially: restores from INFLIGHT cache or API.
+// msg_limit (default 30): only fetch the last N messages for fast switching.
+// Older messages are loaded on-demand via _loadOlderMessages().
+const _INITIAL_MSG_LIMIT = 30;
+
 async function _ensureMessagesLoaded(sid) {
   // Already have messages? (e.g. from INFLIGHT restore path, already set)
   if (S.messages && S.messages.length > 0 && S.messages[0] && S.messages[0].role) {
     return;
   }
-  // Fetch full session with messages
-  const data = await api(`/api/session?session_id=${encodeURIComponent(sid)}&messages=1&resolve_model=0`);
+  // Fetch session messages with a tail window for fast initial load.
+  const data = await api(`/api/session?session_id=${encodeURIComponent(sid)}&messages=1&resolve_model=0&msg_limit=${_INITIAL_MSG_LIMIT}`);
+  _messagesTruncated = !!data.session._messages_truncated;
+  _oldestIdx = data.session._messages_offset || 0;
   const msgs = (data.session.messages || []).filter(m => m && m.role);
   // Check for tool-call metadata on messages (for tool-call card rendering)
   const hasMessageToolMetadata = msgs.some(m => {
@@ -332,6 +351,69 @@ async function _ensureMessagesLoaded(sid) {
     S.session.message_count=Number(data.session.message_count || msgs.length);
     S.lastUsage={...(data.session.last_usage||S.lastUsage||{})};
     _setSessionViewedCount(sid, Number(S.session.message_count || msgs.length));
+  }
+}
+
+// Load older messages when the user scrolls to the top of the conversation.
+// Prepends them to S.messages and re-renders, preserving scroll position.
+let _loadingOlder = false;
+// _oldestIdx tracks the index (in the server's full message array) of the
+// oldest message currently loaded in S.messages. Starts at 0 when all
+// messages are loaded, or > 0 when truncated by msg_limit.
+let _oldestIdx = 0;
+
+async function _loadOlderMessages() {
+  if (_loadingOlder || !_messagesTruncated) return;
+  const sid = S.session ? S.session.session_id : null;
+  if (!sid || !S.messages.length) return;
+  if (_oldestIdx <= 0) { _messagesTruncated = false; return; }
+  _loadingOlder = true;
+  try {
+    const data = await api(`/api/session?session_id=${encodeURIComponent(sid)}&messages=1&resolve_model=0&msg_before=${_oldestIdx}&msg_limit=${_INITIAL_MSG_LIMIT}`);
+    // Cancellation guards:
+    //  - response shape sane
+    //  - the active session is still the one we issued the request for.
+    //    Compare against S.session.session_id, NOT _loadingSessionId — the
+    //    latter is null between session loads, leaving a window where a
+    //    stale response could prepend onto the new session's S.messages.
+    if (!data || !data.session) return;
+    if (!S.session || S.session.session_id !== sid) return;
+    if (_loadingSessionId !== null && _loadingSessionId !== sid) return;
+    const olderMsgs = (data.session.messages || []).filter(m => m && m.role);
+    if (!olderMsgs.length) { _messagesTruncated = false; return; }
+    // Prepend older messages
+    const inner = $('msgInner');
+    const prevScrollH = inner ? inner.scrollHeight : 0;
+    S.messages = [...olderMsgs, ...S.messages];
+    _messagesTruncated = !!data.session._messages_truncated;
+    _oldestIdx = data.session._messages_offset || 0;
+    renderMessages();
+    // Restore scroll position so the user stays at the same message
+    if (inner) {
+      const newScrollH = inner.scrollHeight;
+      inner.scrollTop = newScrollH - prevScrollH;
+    }
+  } catch(e) {
+    console.warn('_loadOlderMessages failed:', e);
+  } finally {
+    // Always clear the loading lock. If the user switched sessions while
+    // this request was in flight, loadSession() already set _loadingOlder=false
+    // (see line ~122), so this is a harmless double-reset.
+    _loadingOlder = false;
+  }
+}
+
+// Ensure the full message history is loaded (for undo, export, etc).
+// If the session was loaded with msg_limit, this fetches all messages.
+async function _ensureAllMessagesLoaded() {
+  if (!_messagesTruncated || !S.session) return;
+  const sid = S.session.session_id;
+  const data = await api(`/api/session?session_id=${encodeURIComponent(sid)}&messages=1&resolve_model=0`);
+  const msgs = (data.session.messages || []).filter(m => m && m.role);
+  S.messages = msgs;
+  _messagesTruncated = false;
+  if(S.session && S.session.session_id === sid){
+    S.session.message_count = Number(data.session.message_count || msgs.length);
   }
 }
 
@@ -746,10 +828,15 @@ function renderSessionListFromCache(){
   // Merge content matches (deduped): content matches appended after title matches
   const titleIds=new Set(titleMatches.map(s=>s.session_id));
   const allMatched=q?[...titleMatches,..._contentSearchResults.filter(s=>!titleIds.has(s.session_id))]:titleMatches;
+  // Never surface ephemeral 0-message sessions in the sidebar — they only become
+  // real once the first message is sent. The server already filters them, but this
+  // guard ensures a brand-new active session doesn't flash into the list while
+  // _allSessions is stale from a prior render (#1171).
+  const withMessages=allMatched.filter(s=>(s.message_count||0)>0 || (S.session&&s.session_id===S.session.session_id&&(S.session.message_count||0)>0));
   // Filter by active profile (unless "All profiles" is toggled on)
   // Server backfills profile='default' for legacy sessions, so every session has a profile.
   // Show only sessions tagged to the active profile; 'All profiles' toggle overrides.
-  const profileFiltered=_showAllProfiles?allMatched:allMatched.filter(s=>s.is_cli_session||s.profile===S.activeProfile);
+  const profileFiltered=_showAllProfiles?withMessages:withMessages.filter(s=>s.is_cli_session||s.profile===S.activeProfile);
   // Filter by active project
   const projectFiltered=_activeProject?profileFiltered.filter(s=>s.project_id===_activeProject):profileFiltered;
   // Filter archived unless toggle is on
@@ -798,7 +885,7 @@ function renderSessionListFromCache(){
     list.appendChild(bar);
   }
   // Profile filter toggle (show sessions from other profiles)
-  const otherProfileCount=allMatched.filter(s=>s.profile&&s.profile!==S.activeProfile).length;
+  const otherProfileCount=withMessages.filter(s=>s.profile&&s.profile!==S.activeProfile).length;
   if(otherProfileCount>0&&!_showAllProfiles){
     const pfToggle=document.createElement('div');
     pfToggle.style.cssText='font-size:10px;padding:4px 10px;color:var(--muted);cursor:pointer;text-align:center;opacity:.7;';

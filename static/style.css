@@ -2184,6 +2184,8 @@ main.main.showing-profiles > #mainProfiles{display:flex;}
 .assistant-segment[data-error="1"] .role-icon { background: rgba(239,83,80,.12); color: var(--error); border-color: var(--error); }
 
 /* ── Day-change separator ── */
+.load-older-indicator{cursor:pointer;color:var(--accent-text,var(--blue));font-size:13px;padding:10px 0;text-align:center;user-select:none;}
+.load-older-indicator:hover{opacity:.75;}
 .msg-date-sep {
   display: flex; align-items: center; gap: 10px;
   margin: 22px 0 10px; padding: 0 var(--msg-rail);
@@ -2353,3 +2355,14 @@ main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-
   .queue-pill:hover{background:color-mix(in srgb,var(--hover-bg) 60%,var(--surface));}
   .queue-pill-count{color:var(--text);}
   .queue-pill-chevron{margin-left:auto;opacity:.5;}
+
+/* ── Mobile: prevent iOS auto-zoom on input focus ─────────────────────────
+   iOS Safari zooms in when a focused input/select has font-size < 16px.
+   This media query targets touch-primary devices (phones and tablets) and
+   bumps all interactive inputs to the minimum non-zoom threshold.
+   The textarea#msg composer is already 16px; the sidebar search, rename
+   inputs, settings selects, and dialog inputs are not.  (#1167)
+──────────────────────────────────────────────────────────────────────── */
+@media (hover:none) and (pointer:coarse){
+  input,textarea,select{font-size:max(16px,1em)!important;}
+}

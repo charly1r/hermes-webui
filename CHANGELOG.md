@@ -357,6 +357,45 @@
   workspace subtree) and never enumerate blocked system roots. (`api/routes.py`,
   `api/workspace.py`, `static/panels.js`, `static/style.css`) (partial for #616)
 
+## [v0.50.229] — 2026-04-27
+
+### Performance
+- **Session switch parallelization** — directory pre-fetches use `Promise.all()` (N×RTT → 1×RTT);
+  git status/ahead/behind run in parallel via `ThreadPoolExecutor(max_workers=3)`;
+  `loadDir()` and `highlightCode()` overlap on the idle path.
+  (`api/workspace.py`, `static/sessions.js`, `static/workspace.js`) (#1158, @jasonjcwu)
+
+### Fixed
+- **Message pagination for long conversations** — sessions with more than 30 messages load the
+  most-recent 30 on switch; older messages load on scroll-to-top or the "↑ load older" indicator.
+  Stale-response race in `_loadOlderMessages` closed; all undo/retry/compress/done paths reset
+  pagination state. (`api/routes.py`, `static/sessions.js`, `static/ui.js`, `static/commands.js`,
+  `static/i18n.js`) (#1158, @jasonjcwu)
+- **Ephemeral untitled sessions never appear in sidebar** — empty Untitled sessions are now
+  suppressed immediately rather than surfacing for 60 seconds. Both the index-path and full-scan
+  fallback filters are consistent; boot path skips restoring a zero-message session from storage.
+  (`api/models.py`, `static/boot.js`, `static/sessions.js`) (#1182)
+- **iOS Safari auto-zoom on input focus** — inputs, textareas, and selects on touch devices now
+  have a minimum `font-size: max(16px, 1em)` via `@media (hover:none) and (pointer:coarse)`,
+  preventing iOS from zooming in on focus. Accessibility-safe: user's OS font preference is
+  respected when it exceeds 16px. (`static/style.css`) (#1167, #1180)
+
+## [v0.50.229] — 2026-04-27
+
+### Performance
+- **Session switch parallelization** — directory pre-fetches now use `Promise.all()` (N×RTT → 1×RTT);
+  git status/ahead/behind subprocesses run in parallel via `ThreadPoolExecutor(max_workers=3)`;
+  `loadDir()` and `highlightCode()` run concurrently on idle path. Session switches with expanded
+  workspace dirs are measurably faster on high-latency connections.
+  (`api/workspace.py`, `static/sessions.js`, `static/workspace.js`) (#1158, @jasonjcwu)
+
+### Added
+- **Message pagination for long conversations** — sessions with more than 30 messages now load
+  the most-recent 30 on switch; older messages load on scroll-to-top or via the "↑ load older"
+  indicator at the top of the message list. All undo/retry/compression paths reset pagination
+  state correctly. (`api/routes.py`, `static/sessions.js`, `static/ui.js`, `static/commands.js`)
+  (#1158, @jasonjcwu)
+
 ## [v0.50.228] — 2026-04-27
 
 ### Fixed
