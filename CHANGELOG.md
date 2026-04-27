@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **Recurring cron jobs with no next run need attention** — the Tasks panel now
+  distinguishes anomalous recurring jobs (`enabled=false`, `state=completed`,
+  `next_run_at=null`) from ordinary off jobs, shows a warning with recovery
+  actions, and lets users copy diagnostics for scheduler/runtime failures.
+  (`static/panels.js`, `static/style.css`, `static/i18n.js`,
+  `tests/test_cron_needs_attention.py`)
 - **Legacy `@provider:model` session models** — persisted sessions with an
   old explicit provider hint (for example `@copilot:gpt-5.5`) now pass through
   the same stale-model compatibility recovery as slash-prefixed session models,
@@ -13,6 +19,17 @@
   two-container WebUI deployments import Hermes Agent's Hindsight memory
   provider without a manual container-side install. (`docker_init.bash`,
   `tests/test_issue926_hindsight_docker_dependency.py`) Closes #926.
+
+
+## v0.50.225 — 2026-04-27
+
+### Added
+- **Cron job attention state** — recurring jobs that land in a broken state (`enabled=false`, `state=completed`, `next_run_at=null`) now show an amber "needs attention" badge instead of the misleading "off" badge. Detail panel shows a warning banner with Resume & recalculate, Run once, and Copy diagnostics actions. Korean locale translated. (`static/panels.js`, `static/style.css`, `static/i18n.js`) [#1133 @franksong2702]
+
+### Fixed
+- **Image attachments: composer tray thumbnails** — pasted/dragged images now show as 56×56 thumbnail chips in the composer instead of paperclip pills. Blob URL revoked on remove. (`static/ui.js`, `static/style.css`) [#1135]
+- **Image attachments: chat history inline** — uploaded images in sent messages now load correctly via `api/file/raw?session_id=SID&path=FILENAME` instead of the broken `api/media?path=FILENAME` path. Click any image to open a lightbox overlay (dark backdrop, 90vw/90vh, × or Escape to close). (`static/ui.js`, `static/style.css`) [#1135] Closes #1095
+- **pytest state isolation** — `conftest.py` now uses direct assignment for `HERMES_WEBUI_STATE_DIR` / `HERMES_HOME` / `HERMES_WEBUI_DEFAULT_WORKSPACE` so tests importing `api.config` in the pytest process cannot inherit the real `~/.hermes/webui` state tree. (`tests/conftest.py`) [#1136 @franksong2702]
 
 ## v0.50.223 — 2026-04-26
 
