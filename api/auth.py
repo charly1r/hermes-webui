@@ -230,11 +230,32 @@ def check_auth(handler, parsed) -> bool:
     else:
         handler.send_response(302)
         # Pass the original path as ?next= so login.js redirects back after auth.
+        # SECURITY/CORRECTNESS: the inner `?` and `&` MUST be percent-encoded
+        # when stuffed into the outer `?next=` parameter, otherwise:
+        #   (a) multi-param query strings get truncated at the first inner `&`
+        #       (e.g. `/api/sessions?limit=50&offset=0` would round-trip as
+        #       just `/api/sessions?limit=50` after the browser parses the
+        #       outer URL — `offset=0` becomes a separate top-level query
+        #       parameter that the login page ignores).
+        #   (b) attacker-controlled paths could inject a second `next=`
+        #       parameter; per RFC 3986 the duplicate behaviour is undefined
+        #       and parsers diverge (Python's parse_qs returns last-match,
+        #       URLSearchParams returns first-match), opening a query-pollution
+        #       footgun even though _safeNextPath() rejects most malicious
+        #       shapes downstream.
+        # Encoding the entire `path?query` blob with quote(safe='/') turns
+        # `?` → `%3F` and `&` → `%26`, so the outer parameter holds exactly
+        # one path-with-query string and `searchParams.get('next')` returns
+        # the full original URL (the browser auto-decodes once).
+        # (Opus pre-release advisor finding for v0.50.258.)
         import urllib.parse as _urlparse
-        _next = _urlparse.quote(parsed.path or '/', safe='/:@!$&\'()*+,;=')
+        _path_with_query = parsed.path or '/'
         if parsed.query:
-            _next += '?' + parsed.query
-        handler.send_header('Location', '/login?next=' + _urlparse.quote(_next, safe='/:@!$&\'()*+,;=?'))
+            _path_with_query += '?' + parsed.query
+        # safe='/' keeps path separators readable; everything else (including
+        # `?`, `&`, `=`) gets percent-encoded.
+        _next = _urlparse.quote(_path_with_query, safe='/')
+        handler.send_header('Location', '/login?next=' + _next)
         handler.end_headers()
     return False
 
