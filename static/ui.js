@@ -1331,8 +1331,11 @@ function renderMd(raw){
       // For JSON/YAML blocks, add tree-view placeholder with raw data
       } else if(lang==='json'||lang==='yaml'){
         const rawCode=esc(code.replace(/\n$/,''));
+        // Encode newlines as &#10; to prevent HTML attribute normalization
+        // (browsers collapse \n to spaces inside attribute values).
+        const rawAttr=rawCode.replace(/"/g,'&quot;').replace(/\n/g,'&#10;');
         const blockId='tree-'+Math.random().toString(36).slice(2,10);
-        _preBlock_stash.push(`<div class="code-tree-wrap" data-raw="${rawCode.replace(/"/g,'&quot;')}" data-lang="${lang}" id="${blockId}">${h}<pre class="tree-raw-view"><code${langAttr}>${rawCode}</code></pre></div>`);
+        _preBlock_stash.push(`<div class="code-tree-wrap" data-raw="${rawAttr}" data-lang="${lang}" id="${blockId}">${h}<pre class="tree-raw-view"><code${langAttr}>${rawCode}</code></pre></div>`);
       // CSV blocks → render as styled table
       } else if(lang==='csv'){
         const rows=code.replace(/\n$/,'').split('\n').filter(r=>r.trim());
@@ -3927,7 +3930,6 @@ function _loadJsyamlThen(cb){
 
 function initTreeViews(){
   document.querySelectorAll('.code-tree-wrap:not([data-tree-init])').forEach(wrap=>{
-    wrap.setAttribute('data-tree-init','1');
     const rawText=wrap.dataset.raw;
     const lang=wrap.dataset.lang;
     let parsed=null;
@@ -3939,10 +3941,16 @@ function initTreeViews(){
       if(typeof jsyaml!=='undefined'){
         try{ parsed=jsyaml.load(rawText); }catch(e){ parseFailed=true; }
       }else{
-        // Trigger async load, leave as raw for now
-        parseFailed=true;
+        // Defer: remove init marker so we retry after load.
+        // Note: if CDN load fails, s.onerror does NOT call back —
+        // the wrap stays un-initialised (raw view only), which is safe.
+        wrap.removeAttribute('data-tree-init');
+        _loadJsyamlThen(initTreeViews);
+        return;
       }
     }
+    // Mark as initialised only after we've committed to a render decision
+    wrap.setAttribute('data-tree-init','1');
     if(!parsed || typeof parsed!=='object'){
       if(parseFailed){
         const hint=wrap.querySelector('.tree-raw-view');
