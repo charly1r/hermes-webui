@@ -172,13 +172,43 @@ These trigger ``--foreground`` behavior even when the flag is not passed:
 | ``INVOCATION_ID`` | systemd | Set on every service activation |
 | ``JOURNAL_STREAM`` | systemd | Set when stdio is wired to journald |
 | ``NOTIFY_SOCKET`` | systemd ``Type=notify`` / s6 | sd_notify-style notification socket |
-| ``XPC_SERVICE_NAME`` | launchd | Set to the plist Label |
+| ``XPC_SERVICE_NAME`` | launchd | Set to the plist Label — narrowed to ``com.<rdns>.<svc>`` form (see below) |
 | ``SUPERVISOR_ENABLED`` | supervisord | Always set under supervisord |
 | ``HERMES_WEBUI_FOREGROUND`` | you | Explicit opt-in; accepts ``1`` / ``true`` / ``yes`` / ``on`` |
 
-If you're running under a supervisor that is not in the list and your tracked
-PID keeps exiting, set ``HERMES_WEBUI_FOREGROUND=1`` in the service
-environment.
+### XPC_SERVICE_NAME noise filter
+
+macOS launchd sets ``XPC_SERVICE_NAME`` in **every Terminal-spawned shell**,
+not just real services. Typical noise values:
+
+- ``0`` — set on launchd descendants generally
+- ``application.com.apple.Terminal.<UUID>`` — Terminal.app shells
+- ``application.com.googlecode.iterm2`` — iTerm2
+- ``application.com.microsoft.VSCode`` — VSCode integrated terminal
+
+A bare existence check on this var would auto-promote interactive
+``./start.sh`` runs to foreground mode on every Mac dev machine, breaking
+the most common installation path. We narrow detection to launchd
+**Label-style** names (typically reverse-DNS like ``com.example.foo``).
+Real launchd plists always use this form. If you ever see
+``XPC_SERVICE_NAME=0`` in your service environment, the auto-detect will
+ignore it — set ``HERMES_WEBUI_FOREGROUND=1`` or pass ``--foreground``
+explicitly to be safe.
+
+### Supervisors that are NOT auto-detected
+
+The following set no env var that we can reliably detect. Pass
+``--foreground`` (or ``HERMES_WEBUI_FOREGROUND=1``) explicitly:
+
+- **runit** (without sd_notify) — pure runit chains
+- **daemontools** / ``svc``
+- **PM2** (Node.js process manager occasionally repurposed for Python)
+- **Foreman** / **Honcho** (Procfile-style)
+- **Docker** with a custom CMD entrypoint that doesn't already use ``exec``
+- **Custom shell-script supervisors** that fork-and-wait
+
+If your supervisor isn't in the auto-detect list and you see the orphan-PID
+respawn loop, set ``HERMES_WEBUI_FOREGROUND=1`` in the service environment.
 
 ## Diagnostic recipe
 

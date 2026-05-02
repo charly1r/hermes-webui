@@ -30,18 +30,23 @@ Coverage
     explicit opt-in, accepting ``1``/``true``/``yes``/``on`` (case-insensitive)
 5.  ``_detect_supervisor()`` ignores ``HERMES_WEBUI_FOREGROUND=0`` /
     ``=false`` / ``=`` and falls through to env-var probing
-6.  ``main()`` calls ``os.execv`` (NOT ``subprocess.Popen``) when
+6.  ``XPC_SERVICE_NAME`` noise filter: bare ``"0"`` and ``application.<id>``
+    values do NOT trigger foreground (the macOS Terminal default state),
+    while real launchd Labels (``com.<rdns>.<svc>``) do
+7.  ``main()`` calls ``os.execv`` (NOT ``subprocess.Popen``) when
     ``--foreground`` is passed
-7.  ``main()`` calls ``os.execv`` (NOT ``subprocess.Popen``) when a supervisor
+8.  ``main()`` calls ``os.execv`` (NOT ``subprocess.Popen``) when a supervisor
     env var is set even without the explicit flag
-8.  Default ``main()`` path (no flag, clean env) still uses ``Popen``
-9.  Foreground path chdir's to ``agent_dir or REPO_ROOT`` before execv (matches
+9.  Default ``main()`` path (no flag, clean env) still uses ``Popen``
+10. Foreground path chdir's to ``agent_dir or REPO_ROOT`` before execv (matches
     the cwd the legacy Popen uses)
-10. Foreground path exports ``HERMES_WEBUI_HOST`` / ``HERMES_WEBUI_PORT`` /
+11. Foreground path exports ``HERMES_WEBUI_HOST`` / ``HERMES_WEBUI_PORT`` /
     ``HERMES_WEBUI_AGENT_DIR`` / ``HERMES_WEBUI_STATE_DIR`` to ``os.environ``
     so the post-exec server picks them up
-11. Foreground path skips ``wait_for_health`` (no client to retry from)
-12. ``--foreground`` help text mentions launchd / systemd / supervisord
+12. Foreground path skips ``wait_for_health`` (no client to retry from)
+13. ``--foreground`` help text mentions launchd / systemd / supervisord
+14. Non-executable ``python_exe`` raises ``RuntimeError`` instead of
+    looping the supervisor on ``execv`` failure
 
 These tests do NOT actually exec — ``os.execv`` is monkeypatched. We're
 pinning the structural choice (which path runs, which cwd, which env) not the
@@ -66,14 +71,27 @@ sys.path.insert(0, str(REPO_ROOT))
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    """Strip all known supervisor env vars so detection starts from a clean state."""
+    """Strip all known supervisor env vars + resolved bootstrap vars so each
+    test starts from a known-clean state.
+
+    The resolved-vars stripping (HERMES_WEBUI_HOST etc.) prevents leakage
+    where a previous test's ``main()`` mutated ``os.environ`` and a later
+    test re-imports ``bootstrap``, picking up the polluted defaults. With
+    these stripped, ``DEFAULT_HOST`` / ``DEFAULT_PORT`` fall back to their
+    hardcoded defaults at module load time.
+    """
     for name in (
+        # Supervisor-detection env vars
         "INVOCATION_ID",
         "JOURNAL_STREAM",
         "NOTIFY_SOCKET",
         "XPC_SERVICE_NAME",
         "SUPERVISOR_ENABLED",
         "HERMES_WEBUI_FOREGROUND",
+        # Bootstrap-resolved env vars (mutated by main(), can leak across tests)
+        "HERMES_WEBUI_HOST",
+        "HERMES_WEBUI_PORT",
+        "HERMES_WEBUI_AGENT_DIR",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -153,6 +171,49 @@ class TestDetectSupervisor:
         monkeypatch.setenv("HERMES_WEBUI_FOREGROUND", "1")
         monkeypatch.setenv("INVOCATION_ID", "deadbeef")
         assert import_bootstrap._detect_supervisor() == "HERMES_WEBUI_FOREGROUND"
+
+
+class TestXPCServiceNameNoiseFilter:
+    """macOS launchd sets XPC_SERVICE_NAME in EVERY Terminal-spawned shell.
+
+    Without filtering, every Mac dev running ``./start.sh`` would silently
+    auto-promote to foreground mode and lose the /health probe + browser open
+    + bootstrap log. We narrow to launchd Label-style names (com.<rdns>.<svc>)
+    while rejecting the well-known noise values.
+    """
+
+    @pytest.mark.parametrize("noise_value", [
+        "0",                                                 # launchd descendants
+        "application.com.apple.Terminal.0BCDDEAD-1234-5678", # Terminal.app shells
+        "application.com.googlecode.iterm2",                 # iTerm2
+        "application.com.microsoft.VSCode",                  # VSCode terminal
+    ])
+    def test_xpc_noise_values_do_not_trigger(self, import_bootstrap, clean_env, monkeypatch, noise_value):
+        monkeypatch.setenv("XPC_SERVICE_NAME", noise_value)
+        assert import_bootstrap._detect_supervisor() is None, (
+            f"XPC_SERVICE_NAME={noise_value!r} should not trigger foreground "
+            f"mode — that would break interactive ./start.sh on every Mac."
+        )
+
+    @pytest.mark.parametrize("real_value", [
+        "com.example.hermes-webui",
+        "com.acme.production-server",
+        "io.github.user.my-service",
+    ])
+    def test_xpc_real_label_triggers(self, import_bootstrap, clean_env, monkeypatch, real_value):
+        monkeypatch.setenv("XPC_SERVICE_NAME", real_value)
+        assert import_bootstrap._detect_supervisor() == "XPC_SERVICE_NAME", (
+            f"XPC_SERVICE_NAME={real_value!r} is a launchd Label and should "
+            f"trigger foreground mode."
+        )
+
+    def test_xpc_noise_does_not_block_other_supervisor_var(self, import_bootstrap, clean_env, monkeypatch):
+        # If XPC has a noise value but INVOCATION_ID is set (mixed env, e.g.
+        # systemd unit run on a Mac CI runner), we should still detect via
+        # INVOCATION_ID rather than swallow it.
+        monkeypatch.setenv("XPC_SERVICE_NAME", "0")
+        monkeypatch.setenv("INVOCATION_ID", "deadbeef")
+        assert import_bootstrap._detect_supervisor() == "INVOCATION_ID"
 
 
 # ---------- main() routing ------------------------------------------------
@@ -356,3 +417,39 @@ class TestForegroundEnvAndCwd:
         # In foreground mode there's no parent left to retry from — the
         # supervisor's KeepAlive handles it. wait_for_health must not run.
         assert len(wait_calls) == 0
+
+
+class TestForegroundExecutabilityGuard:
+    """If python_exe is missing or non-executable, raise a clear error
+    instead of letting os.execv raise OSError → SystemExit(1) → supervisor
+    restart loop. This guard prevents the exact failure mode #1458 reports."""
+
+    @pytest.fixture
+    def setup_with_bad_python(self, monkeypatch, tmp_path):
+        import bootstrap as bs
+        agent_dir = tmp_path / "agent"
+        agent_dir.mkdir()
+        # Create a non-executable file at the python path
+        bad_python = tmp_path / "bad-python"
+        bad_python.write_text("#!/bin/bash\necho hi", encoding="utf-8")
+        bad_python.chmod(0o644)  # NOT executable
+        monkeypatch.setattr(bs, "ensure_supported_platform", lambda: None)
+        monkeypatch.setattr(bs, "discover_agent_dir", lambda: agent_dir)
+        monkeypatch.setattr(bs, "hermes_command_exists", lambda: True)
+        monkeypatch.setattr(bs, "discover_launcher_python", lambda *a: str(bad_python))
+        monkeypatch.setattr(bs, "ensure_python_has_webui_deps", lambda p: p)
+        monkeypatch.setenv("HERMES_WEBUI_STATE_DIR", str(tmp_path / "state"))
+        return bs
+
+    def test_non_executable_python_raises_runtime_error(self, setup_with_bad_python, monkeypatch, clean_env):
+        bs = setup_with_bad_python
+        monkeypatch.setattr(sys, "argv", ["bootstrap.py", "--foreground"])
+
+        execv_calls = []
+        monkeypatch.setattr(os, "execv", lambda *a: execv_calls.append(a))
+        monkeypatch.setattr(os, "chdir", lambda p: None)
+
+        with pytest.raises(RuntimeError, match="not executable"):
+            bs.main()
+        # execv must NOT have been called when the guard fires
+        assert len(execv_calls) == 0

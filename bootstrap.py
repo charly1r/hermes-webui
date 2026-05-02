@@ -232,6 +232,14 @@ def parse_args() -> argparse.Namespace:
 # - XPC_SERVICE_NAME         launchd (set to the Label of the running plist)
 # - SUPERVISOR_ENABLED       supervisord
 # - HERMES_WEBUI_FOREGROUND  explicit user opt-in (=1 / true / yes / on)
+#
+# Note on XPC_SERVICE_NAME: macOS launchd sets this in EVERY Terminal-launched
+# shell too — typical values include "0" (truthy in Python!) and
+# "application.com.apple.Terminal.<UUID>". A bare existence check would
+# false-positive on every Mac dev machine running ./start.sh interactively.
+# We narrow to launchd Label-style names (com.<reverse-dns>.<svc>) — those
+# are real services. Verified with `launchctl getenv XPC_SERVICE_NAME` and
+# Apple's documented launchd behavior.
 _SUPERVISOR_ENV_VARS = (
     "INVOCATION_ID",
     "JOURNAL_STREAM",
@@ -239,6 +247,26 @@ _SUPERVISOR_ENV_VARS = (
     "XPC_SERVICE_NAME",
     "SUPERVISOR_ENABLED",
 )
+
+
+def _is_real_supervisor_value(name: str, value: str) -> bool:
+    """Filter out known-noise env-var values that aren't actual supervisors.
+
+    Most env vars in _SUPERVISOR_ENV_VARS are only set by the supervisor we
+    care about, so any non-empty value is meaningful. XPC_SERVICE_NAME is the
+    exception: macOS launchd sets it in every Terminal-spawned shell with
+    values like "0" or "application.com.apple.Terminal.<UUID>". A real
+    launchd-managed service has a reverse-DNS Label like "com.example.foo".
+    """
+    if not value:
+        return False
+    if name == "XPC_SERVICE_NAME":
+        # Reject Apple's noise values; accept Label-style names.
+        if value == "0":
+            return False
+        if value.startswith("application."):
+            return False
+    return True
 
 
 def _detect_supervisor() -> str | None:
@@ -251,7 +279,8 @@ def _detect_supervisor() -> str | None:
     if explicit in ("1", "true", "yes", "on"):
         return "HERMES_WEBUI_FOREGROUND"
     for name in _SUPERVISOR_ENV_VARS:
-        if os.environ.get(name):
+        value = os.environ.get(name, "")
+        if _is_real_supervisor_value(name, value):
             return name
     return None
 
@@ -301,6 +330,16 @@ def main() -> int:
             raise RuntimeError(
                 f"Could not chdir to {server_cwd!r} before exec: {exc}"
             ) from exc
+        # Defensive check: if python_exe is missing or non-executable, execv
+        # raises OSError, the wrapper catches and SystemExit(1)s, and the
+        # supervisor restarts — looping forever, exactly the failure mode this
+        # PR is meant to eliminate. Convert to a single visible error.
+        if not os.access(python_exe, os.X_OK):
+            raise RuntimeError(
+                f"Python interpreter at {python_exe!r} is not executable. "
+                f"Set HERMES_WEBUI_PYTHON to a working interpreter or fix "
+                f"the agent venv at {agent_dir}."
+            )
         # os.execv replaces the current process image. Anything after this line
         # only runs if execv itself fails (it raises OSError on failure).
         os.execv(python_exe, [python_exe, server_path])
