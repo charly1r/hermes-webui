@@ -7517,7 +7517,13 @@ function resolvePreferredLocale(primary, fallback) {
 function t(key, ...args) {
   const val = _locale[key] ?? LOCALES.en[key];
   if (val === undefined) return key;  // final fallback: return key itself
-  return typeof val === 'function' ? val(...args) : val;
+  if (typeof val === 'function') return val(...args);
+  if (args.length) {
+    return String(val).replace(/\{(\d+)\}/g, (match, idx) => (
+      Object.prototype.hasOwnProperty.call(args, idx) ? String(args[idx]) : match
+    ));
+  }
+  return val;
 }
 
 /**

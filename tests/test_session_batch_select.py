@@ -93,12 +93,12 @@ def test_batch_action_bar_overrides_css_hidden_state():
         src = f.read()
     assert "if(count>0){_renderBatchActionBar();}" in src, \
         "Updating selected count must render action buttons, not just reveal an empty bar"
-    assert "String(t('session_selected_count')).replace('{0}',_selectedSessions.size)" in src, \
-        "Selected count must interpolate string-valued i18n labels"
-    assert "String(t('session_batch_archive_confirm')).replace('{0}',ids.length)" in src, \
-        "Batch archive confirmation must interpolate selected session count"
-    assert "String(t('session_batch_delete_confirm')).replace('{0}',ids.length)" in src, \
-        "Batch delete confirmation must interpolate selected session count"
+    assert "t('session_selected_count',_selectedSessions.size)" in src, \
+        "Selected count must pass the selected session count to i18n"
+    assert "t('session_batch_archive_confirm',ids.length)" in src, \
+        "Batch archive confirmation must pass selected session count to i18n"
+    assert "t('session_batch_delete_confirm',ids.length)" in src, \
+        "Batch delete confirmation must pass selected session count to i18n"
     assert "bar.innerHTML='';bar.style.display=_selectedSessions.size>0?'flex':'none'" in src, \
         "Rendering the action bar must explicitly show it when selections exist"
     assert "batchBar.style.display='flex'" in src, \
@@ -198,6 +198,16 @@ def test_batch_select_i18n_keys():
     for key in required_keys:
         count = src.count(f"{key}:")
         assert count >= 8, f"Key '{key}' found {count} times, expected >= 8 (one per locale) (one per locale)"
+
+
+def test_i18n_string_placeholder_interpolation_supported():
+    """String-valued translations with {0} placeholders should interpolate args."""
+    with open('static/i18n.js') as f:
+        src = f.read()
+    assert "String(val).replace(/\\{(\\d+)\\}/g" in src, \
+        "t() must interpolate {0}-style placeholders for string-valued translations"
+    assert "Object.prototype.hasOwnProperty.call(args, idx)" in src, \
+        "t() must preserve unknown placeholders instead of replacing with undefined"
 
 
 def test_batch_select_css_exists():

@@ -753,13 +753,13 @@ function _renderBatchActionBar(){
   const bar=$('batchActionBar');if(!bar)return;
   bar.innerHTML='';bar.style.display=_selectedSessions.size>0?'flex':'none';
   const countBadge=document.createElement('span');countBadge.className='batch-count';
-  countBadge.textContent=String(t('session_selected_count')).replace('{0}',_selectedSessions.size);bar.appendChild(countBadge);
+  countBadge.textContent=t('session_selected_count',_selectedSessions.size);bar.appendChild(countBadge);
   // Archive
   const archiveBtn=document.createElement('button');archiveBtn.className='batch-action-btn';
   archiveBtn.textContent=t('session_batch_archive');
   archiveBtn.onclick=async()=>{
     const ids=[..._selectedSessions];
-    const ok=await showConfirmDialog({message:String(t('session_batch_archive_confirm')).replace('{0}',ids.length),confirmLabel:t('session_batch_archive'),danger:true});
+    const ok=await showConfirmDialog({message:t('session_batch_archive_confirm',ids.length),confirmLabel:t('session_batch_archive'),danger:true});
     if(!ok)return;
     try{await Promise.all(ids.map(sid=>api('/api/session/archive',{method:'POST',body:JSON.stringify({session_id:sid,archived:true})})));
       showToast(t('session_archived'));exitSessionSelectMode();await renderSessionList();
@@ -774,7 +774,7 @@ function _renderBatchActionBar(){
   deleteBtn.textContent=t('session_batch_delete');
   deleteBtn.onclick=async()=>{
     const ids=[..._selectedSessions];
-    const ok=await showConfirmDialog({message:String(t('session_batch_delete_confirm')).replace('{0}',ids.length),confirmLabel:t('delete_title'),danger:true});
+    const ok=await showConfirmDialog({message:t('session_batch_delete_confirm',ids.length),confirmLabel:t('delete_title'),danger:true});
     if(!ok)return;
     try{await Promise.all(ids.map(sid=>api('/api/session/delete',{method:'POST',body:JSON.stringify({session_id:sid})})));
       if(S.session&&ids.includes(S.session.session_id)){
