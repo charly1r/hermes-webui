@@ -1040,6 +1040,16 @@ def get_cli_sessions() -> list:
                                     break
                     except Exception:
                         pass  # degrade gracefully
+            # If a WebUI JSON file exists for this session (e.g. previously
+            # imported or renamed in the sidebar), prefer its title over the
+            # state.db title.  This fixes rename-not-persisting for CLI sessions
+            # after compression chain extension (#1486).
+            try:
+                _webui_meta = Session.load_metadata_only(sid)
+                if _webui_meta and getattr(_webui_meta, 'title', None):
+                    _title = _webui_meta.title
+            except Exception:
+                pass
             _display_title = _title or f'{_source.title()} Session'
             cli_sessions.append({
                 'session_id': sid,
