@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import socket
+import urllib.error
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -71,7 +75,18 @@ _SUPPORTED_PROVIDER_SETUPS = {
     },
     "lmstudio": {
         "label": "LM Studio",
-        "env_var": "LMSTUDIO_API_KEY",
+        # Canonical env var matches the agent CLI runtime (hermes_cli/auth.py:182,
+        # api_key_env_vars=("LM_API_KEY",)).  Onboarding writes this name so the
+        # agent runtime actually picks up the key on the next chat — pre-#1499/#1500
+        # the WebUI wrote LMSTUDIO_API_KEY which the agent runtime ignored, masked
+        # in practice by the LMSTUDIO_NOAUTH_PLACEHOLDER fallback for keyless installs.
+        "env_var": "LM_API_KEY",
+        # Legacy env var written by older WebUI builds (≤ v0.50.272).  Detection
+        # paths (_provider_api_key_present here, _provider_has_key in providers.py)
+        # also read this name so existing users with the old key in their .env
+        # don't flip to "no key" in Settings → Providers after upgrading.
+        # Onboarding only writes the canonical name going forward.
+        "env_var_aliases": ["LMSTUDIO_API_KEY"],
         "default_model": "gpt-4o-mini",
         "default_base_url": "http://localhost:1234/v1",
         "requires_base_url": True,
@@ -228,6 +243,181 @@ def _normalize_base_url(base_url: str) -> str:
     return (base_url or "").strip().rstrip("/")
 
 
+# ── Provider endpoint probe (#1499) ─────────────────────────────────────────
+
+# Probe error codes — stable strings the frontend can switch on for inline
+# error rendering.  Add new codes only by extending this set; never reuse.
+PROBE_ERROR_CODES = (
+    "invalid_url",       # base_url failed urlparse / scheme / host check
+    "dns",               # hostname did not resolve
+    "connect_refused",   # TCP RST on connect (server not listening)
+    "timeout",           # exceeded probe timeout
+    "http_4xx",          # endpoint returned 4xx (auth required, wrong path, …)
+    "http_5xx",          # endpoint returned 5xx (server-side fault)
+    "parse",             # body not JSON or not the OpenAI /models shape
+    "unreachable",       # other network / SSL / unknown error
+)
+
+PROBE_TIMEOUT_SECONDS = 5.0
+# OpenAI /models response can list dozens of entries on Ollama / LM Studio.
+# 256 KB is more than enough for any realistic catalog and bounds the worst
+# case for a hostile / mis-pointed endpoint that streams forever.
+PROBE_MAX_BYTES = 256 * 1024
+
+
+def probe_provider_endpoint(
+    provider: str,
+    base_url: str,
+    api_key: str | None = None,
+    timeout: float = PROBE_TIMEOUT_SECONDS,
+) -> dict:
+    """Probe `<base_url>/models` for a self-hosted OpenAI-compatible provider.
+
+    Used by the onboarding wizard to validate the user's configured base URL
+    before persisting (#1499).  Distinguishes failure modes so the frontend
+    can render a precise inline error instead of a generic "could not save."
+
+    Returns one of:
+
+      {"ok": True, "models": [{"id": "...", "label": "..."}, ...]}
+      {"ok": False, "error": "<code>", "detail": "<human string>"}
+
+    Where ``<code>`` is one of ``PROBE_ERROR_CODES``.
+
+    The probe is a single HTTP GET — no retries.  The timeout is short by
+    design: the wizard runs the probe synchronously on the user's submit
+    click, and we'd rather report "timeout" quickly than block the UI for
+    the kernel default ~75s.
+
+    The probe response is NOT persisted.  This function returns model IDs
+    so the wizard can populate its dropdown, but ``apply_onboarding_setup``
+    only writes the user's typed selection — never auto-pinning a stale
+    list of models to ``config.yaml``.
+
+    SSRF: ``base_url`` is whatever the user typed in the onboarding form.
+    The wizard is gated behind authentication (post-onboarding, the user
+    has already authenticated to the WebUI), and the legitimate target is
+    a local LM Studio / Ollama / vLLM server, so we deliberately do not
+    block private-IP ranges — that would make the feature useless.  The
+    risk surface is "authenticated user crafts a probe to enumerate
+    internal HTTP services," which is a different threat model from
+    unauthenticated SSRF.
+    """
+    base_url = _normalize_base_url(base_url)
+    if not base_url:
+        return {"ok": False, "error": "invalid_url", "detail": "base_url is required"}
+
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"}:
+        return {
+            "ok": False,
+            "error": "invalid_url",
+            "detail": "base_url must start with http:// or https://",
+        }
+    if not parsed.hostname:
+        return {"ok": False, "error": "invalid_url", "detail": "base_url has no host"}
+
+    # Build the probe URL.  OpenAI-compatible servers expose /v1/models or
+    # /models.  Most users supply a base URL ending in /v1, so we just append
+    # /models to whatever they typed.  Strip the trailing slash and append
+    # rather than urljoin to avoid eating the /v1 segment when there's no
+    # trailing slash.
+    probe_url = f"{base_url}/models"
+
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "hermes-webui-onboarding-probe",
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    req = urllib.request.Request(probe_url, headers=headers, method="GET")
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = resp.status
+            body = resp.read(PROBE_MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        # 4xx / 5xx with a body — categorize.
+        code = "http_4xx" if 400 <= exc.code < 500 else "http_5xx"
+        # Try to surface a useful detail (LM Studio sometimes returns text/plain).
+        try:
+            err_body = exc.read(2048).decode("utf-8", errors="replace").strip()
+        except Exception:
+            err_body = ""
+        detail = f"HTTP {exc.code}"
+        if err_body:
+            err_first = err_body.splitlines()[0][:200]
+            detail = f"{detail}: {err_first}"
+        return {"ok": False, "error": code, "detail": detail, "status": exc.code}
+    except urllib.error.URLError as exc:
+        # Distinguish DNS / connect-refused / timeout / generic.
+        reason = exc.reason
+        if isinstance(reason, socket.timeout) or "timed out" in str(reason).lower():
+            return {"ok": False, "error": "timeout", "detail": f"connection timed out after {timeout:g}s"}
+        if isinstance(reason, socket.gaierror):
+            return {
+                "ok": False,
+                "error": "dns",
+                "detail": f"could not resolve host '{parsed.hostname}'",
+            }
+        if isinstance(reason, ConnectionRefusedError) or "refused" in str(reason).lower():
+            port_hint = parsed.port or ("443" if parsed.scheme == "https" else "80")
+            return {
+                "ok": False,
+                "error": "connect_refused",
+                "detail": f"connection refused at {parsed.hostname}:{port_hint}",
+            }
+        return {"ok": False, "error": "unreachable", "detail": str(reason)[:200]}
+    except (TimeoutError, socket.timeout):
+        return {"ok": False, "error": "timeout", "detail": f"connection timed out after {timeout:g}s"}
+    except Exception as exc:  # pragma: no cover — defensive net
+        logger.debug("probe_provider_endpoint unexpected error", exc_info=True)
+        return {"ok": False, "error": "unreachable", "detail": str(exc)[:200]}
+
+    # If the response was huge, refuse to parse.  256 KB cap is generous;
+    # anything bigger is likely the user pointed us at the wrong service.
+    if len(body) > PROBE_MAX_BYTES:
+        return {
+            "ok": False,
+            "error": "parse",
+            "detail": f"response exceeded {PROBE_MAX_BYTES // 1024} KB cap",
+        }
+
+    try:
+        payload = json.loads(body.decode("utf-8", errors="replace"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        return {
+            "ok": False,
+            "error": "parse",
+            "detail": f"response is not JSON ({exc.__class__.__name__})",
+        }
+
+    # Accept both the OpenAI shape (`{"data": [{"id": ...}, ...]}`) and the
+    # bare-list shape some self-hosted servers return (`[{"id": ...}, ...]`).
+    if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        entries = payload["data"]
+    elif isinstance(payload, list):
+        entries = payload
+    else:
+        return {
+            "ok": False,
+            "error": "parse",
+            "detail": "response is not in OpenAI /models shape (expected {'data': [...]} or [...])",
+        }
+
+    models = []
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("id"):
+            mid = str(entry["id"]).strip()
+            if mid:
+                models.append({"id": mid, "label": mid})
+        elif isinstance(entry, str) and entry.strip():
+            models.append({"id": entry.strip(), "label": entry.strip()})
+
+    return {"ok": True, "models": models, "status": status}
+
+
 def _extract_current_provider(cfg: dict) -> str:
     model_cfg = cfg.get("model", {})
     if isinstance(model_cfg, dict):
@@ -263,6 +453,15 @@ def _provider_api_key_present(
     env_var = _SUPPORTED_PROVIDER_SETUPS.get(provider, {}).get("env_var")
     if env_var and env_values.get(env_var):
         return True
+
+    # Legacy env-var aliases (read-only fallback for env vars renamed in past
+    # releases — e.g. lmstudio's LM_API_KEY canonical + LMSTUDIO_API_KEY legacy
+    # in #1500).  Canonical name is what onboarding writes going forward;
+    # aliases keep existing users' detection working without forcing an .env
+    # rewrite.
+    for alias in _SUPPORTED_PROVIDER_SETUPS.get(provider, {}).get("env_var_aliases", []) or []:
+        if alias and env_values.get(alias):
+            return True
 
     model_cfg = cfg.get("model", {})
     if isinstance(model_cfg, dict) and str(model_cfg.get("api_key") or "").strip():

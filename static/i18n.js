@@ -647,6 +647,19 @@ const LOCALES = {
     onboarding_error_choose_model: 'Choose a model before continuing.',
     onboarding_error_provider_required: 'Choose a setup mode before continuing.',
     onboarding_error_base_url_required: 'Base URL is required for custom endpoints.',
+    onboarding_probe_test_button: 'Test connection',
+    onboarding_probe_probing: 'Testing connection…',
+    onboarding_probe_ok: 'Connected. {n} model(s) available.',
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.',
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.',
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.',
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.',
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.',
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).',
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.',
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.',
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.',
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.',
     onboarding_error_workspace_required: 'Workspace is required.',
     onboarding_error_model_required: 'Model is required.',
     onboarding_complete: 'Onboarding complete',
@@ -1527,6 +1540,19 @@ const LOCALES = {
     onboarding_error_choose_model: '続行する前にモデルを選択してください。',
     onboarding_error_provider_required: '続行する前にセットアップモードを選択してください。',
     onboarding_error_base_url_required: 'カスタムエンドポイントにはベース URL が必要です。',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_workspace_required: 'ワークスペースは必須です。',
     onboarding_error_model_required: 'モデルは必須です。',
     onboarding_complete: 'オンボーディング完了',
@@ -2214,6 +2240,19 @@ const LOCALES = {
     onboarding_error_choose_model: 'Выберите модель перед продолжением.',
     onboarding_error_provider_required: 'Выберите режим настройки перед продолжением.',
     onboarding_error_base_url_required: 'Для собственных endpoint-ов требуется базовый URL.',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_workspace_required: 'Рабочее пространство обязательно.',
     onboarding_error_model_required: 'Модель обязательна.',
     onboarding_complete: 'Первичная настройка завершена',
@@ -3033,6 +3072,19 @@ const LOCALES = {
     onboarding_error_choose_model: 'Elige un modelo antes de continuar.',
     onboarding_error_provider_required: 'Elige un modo de configuración antes de continuar.',
     onboarding_error_base_url_required: 'La base URL es obligatoria para endpoints personalizados.',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_workspace_required: 'El espacio de trabajo es obligatorio.',
     onboarding_error_model_required: 'El modelo es obligatorio.',
     onboarding_complete: 'Onboarding completado',
@@ -3986,6 +4038,19 @@ const LOCALES = {
     onboarding_error_choose_model: 'Bitte wählen Sie ein Modell.',
     onboarding_error_provider_required: 'Anbieter erforderlich.',
     onboarding_error_base_url_required: 'Base URL erforderlich.',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_workspace_required: 'Arbeitsbereich erforderlich.',
     onboarding_error_model_required: 'Modell erforderlich.',
     onboarding_complete: 'Einrichtung abgeschlossen!',
@@ -4663,6 +4728,19 @@ const LOCALES = {
     onboarding_error_choose_model: '继续前请先选择模型。',
     onboarding_error_provider_required: '继续前请先选择设置模式。',
     onboarding_error_base_url_required: '自定义端点必须填写 Base URL。',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_workspace_required: '必须填写工作区。',
     onboarding_error_model_required: '必须填写模型。',
     onboarding_complete: '引导完成',
@@ -5439,6 +5517,19 @@ const LOCALES = {
     onboarding_custom_model_placeholder: 'your_model_name',
     onboarding_env_file: '.env \u6a94\u6848\uff1a',
     onboarding_error_base_url_required: '\u81ea\u8a02\u7aef\u9ede\u9700\u8981\u57fa\u790e URL\u3002',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_choose_model: '\u8acb\u5148\u9078\u64c7\u6a21\u578b\u518d\u7e7c\u7e8c\u3002',
     onboarding_error_choose_workspace: '\u8acb\u5148\u9078\u64c7\u5de5\u4f5c\u5340\u518d\u7e7c\u7e8c\u3002',
     onboarding_error_model_required: '\u9700\u8981\u6a21\u578b\u3002',
@@ -6466,6 +6557,19 @@ const LOCALES = {
     onboarding_error_choose_model: 'Escolha modelo antes de continuar.',
     onboarding_error_provider_required: 'Escolha modo de setup antes de continuar.',
     onboarding_error_base_url_required: 'Base URL é necessária para endpoints customizados.',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_workspace_required: 'Workspace é necessário.',
     onboarding_error_model_required: 'Modelo é necessário.',
     onboarding_complete: 'Configuração completa',
@@ -7252,6 +7356,19 @@ const LOCALES = {
     onboarding_error_choose_model: 'Choose a model before continuing.',
     onboarding_error_provider_required: 'Choose a setup mode before continuing.',
     onboarding_error_base_url_required: 'Base URL is required for custom endpoints.',
+    onboarding_probe_test_button: 'Test connection', // TODO: translate
+    onboarding_probe_probing: 'Testing connection…', // TODO: translate
+    onboarding_probe_ok: 'Connected. {n} model(s) available.', // TODO: translate
+    onboarding_probe_error_generic: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_probe_error_invalid_url: 'Base URL must start with http:// or https://.', // TODO: translate
+    onboarding_probe_error_dns: 'Could not resolve the host. Check the URL or use the host\'s IP address.', // TODO: translate
+    onboarding_probe_error_connect_refused: 'Connection refused — the server may not be running on that address. From inside Docker, try the host IP instead of localhost.', // TODO: translate
+    onboarding_probe_error_timeout: 'The endpoint did not respond in time. Check that the server is running and the URL is correct.', // TODO: translate
+    onboarding_probe_error_http_4xx: 'The endpoint returned a client error. Check authentication and the URL path (typically ends in /v1).', // TODO: translate
+    onboarding_probe_error_http_5xx: 'The endpoint returned a server error. Check the LM Studio / Ollama server logs.', // TODO: translate
+    onboarding_probe_error_parse: 'The endpoint did not return a model list in the expected shape. Verify the URL points to the OpenAI-compatible API root.', // TODO: translate
+    onboarding_probe_error_unreachable: 'Could not reach the configured base URL.', // TODO: translate
+    onboarding_error_probe_failed: 'Could not validate the configured base URL.', // TODO: translate
     onboarding_error_workspace_required: 'Workspace is required.',
     onboarding_error_model_required: 'Model is required.',
     onboarding_complete: '설정 완료',
