@@ -31,10 +31,21 @@ logger = logging.getLogger(__name__)
 
 
 def _msg_count(p: Path) -> int:
-    """Return the number of messages in a session JSON file, or -1 on read/parse error."""
+    """Return the number of messages in a session JSON file, or -1 on read/parse error.
+
+    Returns -1 for any non-session-shape file:
+    - File can't be read (OSError)
+    - Top-level isn't valid JSON or is invalid (JSONDecodeError, ValueError)
+    - Top-level isn't a dict (AttributeError on .get) — e.g. ``_index.json``
+      which is a top-level list of session metadata, not a session itself.
+      The startup recovery scanner globs ``*.json`` and would otherwise
+      crash on the first non-dict file it encounters.
+    """
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError, ValueError):
+        return -1
+    if not isinstance(data, dict):
         return -1
     msgs = data.get('messages')
     return len(msgs) if isinstance(msgs, list) else -1
@@ -117,8 +128,25 @@ def recover_all_sessions_on_startup(session_dir: Path) -> dict:
     restored = 0
     details: list[dict] = []
     for path in session_dir.glob('*.json'):
+        # Skip non-session JSON files in the same dir:
+        # - ``_index.json`` is a top-level list of session metadata
+        # - any other underscore-prefixed file is convention-marked as
+        #   non-session (matching the existing _index.json pattern)
+        # - dated-format files (``YYYYMMDD_HHMMSS_*.json``) are gateway
+        #   transcripts with their own shape
+        if path.name.startswith('_'):
+            continue
         scanned += 1
-        result = recover_session(path)
+        try:
+            result = recover_session(path)
+        except Exception as exc:
+            # Defensive: a malformed session file shouldn't break recovery
+            # for the rest. Log and continue.
+            logger.warning(
+                "recover_all_sessions_on_startup: skipped %s due to %s: %s",
+                path.name, type(exc).__name__, exc,
+            )
+            continue
         if result.get("restored"):
             restored += 1
             details.append(result)

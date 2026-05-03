@@ -215,3 +215,47 @@ def test_recover_all_sessions_on_startup_is_idempotent_no_op_on_clean_state(temp
 
     live_after = (temp_session_dir / f"{sid}.json").read_text(encoding="utf-8")
     assert live_before == live_after
+
+
+def test_recover_all_sessions_on_startup_skips_non_session_index_json(temp_session_dir):
+    """Regression for v0.50.284 startup: ``_index.json`` is a top-level list
+    (not a dict), and the recovery scanner globs ``*.json``. Without the
+    underscore-prefix skip + ``isinstance(data, dict)`` guard in ``_msg_count``,
+    the very first iteration crashed with ``AttributeError: 'list' object has
+    no attribute 'get'`` and the broad ``except Exception`` in server.py
+    swallowed the error, so recovery silently no-op'd in production.
+    """
+    # Simulate the production session dir: 1 valid session + _index.json
+    sid = _make_session_on_disk(temp_session_dir, n_msgs=1000)
+    # _index.json is the index file shape — a top-level list of metadata dicts
+    index_path = temp_session_dir / "_index.json"
+    index_path.write_text(
+        json.dumps([
+            {"session_id": sid, "title": "Test", "updated_at": 1.0},
+            {"session_id": "other", "title": "Other", "updated_at": 2.0},
+        ]),
+        encoding="utf-8",
+    )
+
+    from api.session_recovery import recover_all_sessions_on_startup
+    # Before the fix, this raised AttributeError; the broad except in server.py
+    # swallowed it and printed [recovery] startup recovery failed: 'list'
+    # object has no attribute 'get'. Now the scanner skips _index.json
+    # entirely (underscore-prefix convention) and continues scanning real
+    # session files.
+    result = recover_all_sessions_on_startup(temp_session_dir)
+    assert result["restored"] == 0
+    # The 1 valid session was scanned; _index.json was skipped (not counted)
+    assert result["scanned"] == 1, (
+        f"_index.json must be skipped, scanned should be 1, got {result['scanned']}"
+    )
+
+
+def test_msg_count_returns_neg1_for_non_dict_top_level(temp_session_dir):
+    """``_msg_count`` must not raise on a JSON file whose top-level is a list."""
+    from api.session_recovery import _msg_count
+    list_shaped = temp_session_dir / "_index.json"
+    list_shaped.write_text(json.dumps([{"session_id": "x"}]), encoding="utf-8")
+    # Pre-fix: AttributeError. Post-fix: -1.
+    assert _msg_count(list_shaped) == -1
+

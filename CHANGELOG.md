@@ -1,5 +1,26 @@
 # Hermes Web UI -- Changelog
 
+## [v0.50.285] — 2026-05-03
+
+### Fixed (1 PR — same-day hotfix-of-hotfix)
+
+- **Session recovery scanner crashes on `_index.json` (silent no-op in production)** (closes #1558 follow-up) — v0.50.284's startup self-heal (`api/session_recovery.py:recover_all_sessions_on_startup`) crashed on the very first `*.json` it scanned in the production session directory. The session dir contains an `_index.json` file whose top-level shape is a **list** (the index of session metadata dicts), not a dict. `_msg_count()` did `data.get('messages')` which raises `AttributeError: 'list' object has no attribute 'get'`. The broad `except Exception` in `server.py`'s startup hook swallowed the error and printed `[recovery] startup recovery failed: 'list' object has no attribute 'get'`, so the recovery silently no-op'd for every user — defeating the entire purpose of the v0.50.284 startup self-heal. Verified live on the production server immediately after the v0.50.284 deploy: log line confirmed the failure, no recovery attempted. **Fix:** (1) `_msg_count()` now guards `if not isinstance(data, dict): return -1` so non-dict-shaped JSON files return the harmless "unknown count" sentinel instead of raising. (2) The scanner skips any file whose name starts with `_` (the existing project convention for non-session metadata files like `_index.json`). (3) The scanner now wraps `recover_session(path)` in `try/except Exception` so a single malformed file can't break recovery for the rest. 2 new regression tests in `tests/test_metadata_save_wipe_1558.py`: `test_recover_all_sessions_on_startup_skips_non_session_index_json` and `test_msg_count_returns_neg1_for_non_dict_top_level`. Net effect: any user wiped between v0.50.279 and v0.50.284 deploys whose session left a `.bak` will now get auto-recovered on first launch of v0.50.285, as v0.50.284's release notes promised.
+
+### Tests
+
+4026 → **4028 passing** (+2 from the 2 new regression tests). 0 regressions. Full suite in 114s.
+
+### Pre-release verification
+
+- All 8 tests in `tests/test_metadata_save_wipe_1558.py` pass (6 original + 2 new regression).
+- Live verification on production server: pre-fix log line `[recovery] startup recovery failed: 'list' object has no attribute 'get'`. Post-fix expected log: `[recovery] Restored N/M sessions from .bak (see #1558).` (or empty scan if no `.bak` files).
+- Pre-release Opus advisor pass on the hotfix.
+
+### Why this needed a same-day v0.50.285 vs being deferred
+
+v0.50.284 promised that "the first server start after deploying v0.50.285 will auto-restore any session that was wiped between deploys." That promise was broken by the `_index.json` shape mismatch — the recovery silently never fired. Affected users (the original reporter on v0.50.282 with the 1000+ message session that disappeared) would have had `<sid>.json.bak` files on disk but those files would never be processed. Same-day hotfix restores the promise.
+
+
 ## [v0.50.284] — 2026-05-03
 
 ### Fixed (2 PRs — P0 streaming hotfix batch — closes #1533, #1558)
