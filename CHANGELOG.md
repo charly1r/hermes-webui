@@ -1,5 +1,17 @@
 # Hermes Web UI -- Changelog
 
+## [v0.50.277] — 2026-05-03
+
+### Fixed (1 PR — self-built, supersedes contributor PR #1511)
+
+- **Model picker no longer corrupts ids/labels when multiple unconfigured providers expose the same model** (self-built; supersedes contributor PR #1511 by @lost9999; reporter @vishnu via Discord) — when multiple "auto-detected" providers (Ollama / HuggingFace / custom OpenAI-compatible endpoints / Google Gemini CLI / Xiaomi / etc.) all fell through to the unconfigured-provider branch in `api/config.py:get_models_grouped()`, every group ended up sharing the SAME `auto_detected_models` list reference AND the SAME dicts inside. When `_deduplicate_model_ids()` then mutated those dicts to add `@provider_id:` prefixes and provider-name parentheticals, the changes were applied to every group that referenced the same dict. Visible symptom: the dropdown showed `Deepseek V4 Flash (Xiaomi) (Ollama) (HuggingFace) (Google-Gemini-Cli)` — accumulated provider names. Hidden symptom (worse, never reported as a bug): the `id` field also collapsed to `@xiaomi:deepseek-v4-flash` (whichever provider_id won the alphabetical-first race) on every group, so selecting the model under any group silently routed the request to the wrong provider. Contributor PR #1511 attempted to fix this by removing the label-suffix logic in `_deduplicate_model_ids()` — that would have hidden the visible label clutter while leaving the silent ID-routing bug intact. **The proper fix is at the assignment site: `api/config.py:2078` now wraps `auto_detected_models` in `copy.deepcopy()` when assigning to a group**, so each group gets its own independent dicts and dedup mutation cannot bleed across groups. The existing `_deduplicate_model_ids()` logic is unchanged and correct (single-parenthetical label is retained because the composer chip at `static/index.html:441` shows the model label WITHOUT optgroup header context — `Deepseek V4 Flash (Ollama)` is more useful there than ambiguous `Deepseek V4 Flash`). Verified empirically with a repro: pre-fix all 4 colliding groups collapsed to one `@xiaomi:` id with a 3-parenthetical label; post-fix each group gets its own correct `@provider_id:` prefix and exactly ONE parenthetical. 3 new regression tests in `tests/test_issue1511_dedup_shared_reference.py`: structural invariant (`test_groups_have_independent_model_lists`), end-to-end against corrected path (`test_unconfigured_providers_no_shared_dedup_bleed`), broken-state evidence test (`test_shared_reference_pre_fix_demonstrates_corruption`). Co-authored-by trailer credits @lost9999 for the original bug report.
+
+### Notes
+
+- 3925 → **3929** tests passing (+4 regression tests; +1 production-path guard added in-release per Opus SHOULD-FIX feedback).
+- Pre-release Opus advisor pass: SHIP AS-IS. Verified all 5 group-build paths in `get_models_grouped()` — only the unconfigured-fallback path at line 2078 had shared-reference corruption (OpenRouter / ollama-cloud / `_PROVIDER_MODELS` / named-custom paths all already build independent dicts).
+- Closes contributor PR #1511 with credit + explanation. The contributor's symptom report was correct and motivated the fix; their proposed patch addressed a different layer than the actual root cause.
+
 ## [v0.50.276] — 2026-05-03
 
 ### Fixed (1 PR — closes #1507)
