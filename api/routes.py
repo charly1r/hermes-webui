@@ -1631,6 +1631,186 @@ button:hover{background:rgba(124,185,255,.25)}
 
 # ── Insights endpoint ──────────────────────────────────────────────────────────
 
+_LLM_WIKI_DOCS_URL = "https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki"
+_LLM_WIKI_PAGE_DIRS = ("entities", "concepts", "comparisons", "queries")
+
+
+def _llm_wiki_active_hermes_home() -> Path:
+    try:
+        from api.profiles import get_active_hermes_home
+        return Path(get_active_hermes_home()).expanduser()
+    except Exception:
+        return Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
+
+
+def _llm_wiki_env_file_path(hermes_home: Path) -> str | None:
+    env_path = hermes_home / ".env"
+    if not env_path.exists() or not env_path.is_file():
+        return None
+    try:
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            if key.strip() != "WIKI_PATH":
+                continue
+            value = value.strip().strip('"').strip("'")
+            return value or None
+    except Exception:
+        return None
+    return None
+
+
+def _llm_wiki_get_config_path_value(config: dict, dotted_key: str) -> str | None:
+    if not isinstance(config, dict):
+        return None
+    if dotted_key in config and config.get(dotted_key):
+        return str(config.get(dotted_key))
+    cur = config
+    for part in dotted_key.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return str(cur) if cur else None
+
+
+def _llm_wiki_config_path() -> str | None:
+    try:
+        from api.config import get_config as _get_cfg
+        cfg = _get_cfg()
+    except Exception:
+        return None
+    return (
+        _llm_wiki_get_config_path_value(cfg, "skills.config.wiki.path")
+        or _llm_wiki_get_config_path_value(cfg, "wiki.path")
+    )
+
+
+def _llm_wiki_resolve_path() -> tuple[Path, str, bool]:
+    hermes_home = _llm_wiki_active_hermes_home()
+    raw = os.getenv("WIKI_PATH") or _llm_wiki_env_file_path(hermes_home)
+    source = "WIKI_PATH" if raw else "default"
+    configured = bool(raw)
+    if not raw:
+        raw = _llm_wiki_config_path()
+        if raw:
+            source = "skills.config.wiki.path"
+            configured = True
+    if not raw:
+        raw = "~/wiki"
+    return Path(os.path.expandvars(raw)).expanduser(), source, configured
+
+
+def _llm_wiki_safe_iso(ts: float | None) -> str | None:
+    if not ts:
+        return None
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return None
+
+
+def _llm_wiki_count_files(root: Path) -> int:
+    if not root.exists() or not root.is_dir():
+        return 0
+    count = 0
+    for item in root.rglob("*"):
+        try:
+            if item.is_file() and not any(part.startswith(".") for part in item.relative_to(root).parts):
+                count += 1
+        except Exception:
+            continue
+    return count
+
+
+def _llm_wiki_page_files(wiki_path: Path) -> list[Path]:
+    pages: list[Path] = []
+    for dirname in _LLM_WIKI_PAGE_DIRS:
+        section = wiki_path / dirname
+        if not section.exists() or not section.is_dir():
+            continue
+        for item in section.rglob("*.md"):
+            try:
+                rel = item.relative_to(section)
+                if item.is_file() and not any(part.startswith(".") for part in rel.parts):
+                    pages.append(item)
+            except Exception:
+                continue
+    return pages
+
+
+def _build_llm_wiki_status() -> dict:
+    """Return private-safe LLM Wiki status metadata without reading page bodies."""
+    try:
+        wiki_path, path_source, path_configured = _llm_wiki_resolve_path()
+        base = {
+            "available": False,
+            "enabled": False,
+            "status": "missing",
+            "entry_count": 0,
+            "page_count": 0,
+            "raw_source_count": 0,
+            "last_updated": None,
+            "last_writer": None,
+            "path_configured": path_configured,
+            "path_source": path_source,
+            "toggle_available": False,
+            "toggle_reason": "Hermes Agent exposes WIKI_PATH/wiki.path for location, but no stable on/off config flag is currently available.",
+            "docs_url": _LLM_WIKI_DOCS_URL,
+        }
+        if not wiki_path.exists():
+            return base
+        if not wiki_path.is_dir():
+            base["status"] = "not_directory"
+            return base
+
+        page_files = _llm_wiki_page_files(wiki_path)
+        status_files = [p for p in (wiki_path / "SCHEMA.md", wiki_path / "index.md", wiki_path / "log.md") if p.exists() and p.is_file()]
+        status_files.extend(page_files)
+        latest = None
+        for item in status_files:
+            try:
+                mtime = item.stat().st_mtime
+            except Exception:
+                continue
+            latest = mtime if latest is None else max(latest, mtime)
+
+        base.update({
+            "available": True,
+            "enabled": True,
+            "status": "ready" if page_files else "empty",
+            "entry_count": len(page_files),
+            "page_count": len(page_files),
+            "raw_source_count": _llm_wiki_count_files(wiki_path / "raw"),
+            "last_updated": _llm_wiki_safe_iso(latest),
+        })
+        return base
+    except Exception as exc:
+        return {
+            "available": False,
+            "enabled": False,
+            "status": "error",
+            "entry_count": 0,
+            "page_count": 0,
+            "raw_source_count": 0,
+            "last_updated": None,
+            "last_writer": None,
+            "path_configured": False,
+            "path_source": "unknown",
+            "toggle_available": False,
+            "toggle_reason": "Unable to inspect LLM Wiki status safely.",
+            "docs_url": _LLM_WIKI_DOCS_URL,
+            "error": type(exc).__name__,
+        }
+
+
+def _handle_llm_wiki_status(handler, parsed) -> bool:
+    j(handler, _build_llm_wiki_status())
+    return True
+
+
 def _handle_insights(handler, parsed) -> bool:
     """Return usage analytics from local WebUI session data."""
     import collections
@@ -2143,7 +2323,7 @@ def handle_get(handler, parsed) -> bool:
             handler.end_headers()
         return True
 
-    # ── Insights ──
+    # ── Insights / knowledge status ──
     if parsed.path == "/api/insights":
         return _handle_insights(handler, parsed)
 
@@ -2151,6 +2331,8 @@ def handle_get(handler, parsed) -> bool:
         from api.kanban_bridge import handle_kanban_get
 
         return handle_kanban_get(handler, parsed)
+    if parsed.path == "/api/wiki/status":
+        return _handle_llm_wiki_status(handler, parsed)
 
     if parsed.path == "/health":
         return _handle_health(handler, parsed)

@@ -3142,6 +3142,21 @@ main.main.showing-insights > #mainInsights{display:flex;overflow-y:auto;}
 .insights-stat-label{font-size:11px;color:var(--muted);margin-top:4px;}
 .insights-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
 .insights-card{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;}
+.wiki-status-card{margin-bottom:16px;}
+.wiki-status-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;}
+.wiki-status-sub{font-size:11px;color:var(--muted);margin-top:-4px;}
+.wiki-status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700;border:1px solid var(--border);color:var(--muted);background:var(--surface);}
+.wiki-status-badge.ok{color:var(--accent-text);background:var(--accent-bg);border-color:var(--accent-bg-strong);}
+.wiki-status-badge.warn{color:#e8a030;background:rgba(232,160,48,.12);border-color:rgba(232,160,48,.28);}
+.wiki-status-badge.err{color:var(--error,#e05);background:color-mix(in srgb,var(--error,#e05) 10%,transparent);border-color:color-mix(in srgb,var(--error,#e05) 30%,transparent);}
+.wiki-status-note{font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:12px;}
+.wiki-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px;}
+.wiki-status-grid div{display:flex;flex-direction:column;gap:3px;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-width:0;}
+.wiki-status-grid span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.wiki-status-grid strong{font-size:13px;color:var(--text);font-weight:650;overflow-wrap:anywhere;}
+.wiki-status-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;}
+.wiki-status-footer a{color:var(--accent);text-decoration:none;font-weight:600;white-space:nowrap;}
+.wiki-status-footer a:hover{text-decoration:underline;}
 .insights-card-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;}
 .insights-table{width:100%;font-size:12px;}
 .insights-table-head{display:grid;grid-template-columns:1fr 80px;padding:4px 0;border-bottom:1px solid var(--border);font-weight:600;color:var(--muted);font-size:11px;}

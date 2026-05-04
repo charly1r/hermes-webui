@@ -1995,8 +1995,11 @@ async function loadInsights(animate) {
   }
   const period = ($('insightsPeriod') || {}).value || '30';
   try {
-    const data = await api(`/api/insights?days=${period}`);
-    _renderInsights(data, box);
+    const [data, wikiStatus] = await Promise.all([
+      api(`/api/insights?days=${period}`),
+      api('/api/wiki/status').catch(err => ({status:'error', error: err.message || String(err)})),
+    ]);
+    _renderInsights(data, box, wikiStatus);
   } catch(e) {
     box.innerHTML = `<div style="color:var(--accent);font-size:12px">${esc(t('error_prefix') + e.message)}</div>`;
   } finally {
@@ -2007,7 +2010,56 @@ async function loadInsights(animate) {
   }
 }
 
-function _renderInsights(d, box) {
+function _formatLlmWikiTimestamp(value) {
+  if (!value) return 'Never';
+  try { return new Date(value).toLocaleString(); }
+  catch (_) { return String(value); }
+}
+
+function _renderLlmWikiStatus(d) {
+  const status = d || {status:'error'};
+  const isReady = status.available && status.status === 'ready';
+  const isEmpty = status.available && status.status === 'empty';
+  const isError = status.status === 'error';
+  const badgeClass = isReady ? 'ok' : isError ? 'err' : isEmpty ? 'warn' : 'muted';
+  const badgeText = isReady ? 'Available' : isError ? 'Error' : isEmpty ? 'Empty' : 'Unavailable';
+  const docsUrl = status.docs_url || 'https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki';
+  const toggleNote = status.toggle_available
+    ? 'Toggle available from configured Hermes Agent setting.'
+    : (status.toggle_reason || 'No stable LLM Wiki on/off config flag was detected, so this panel is read-only.');
+  const statusNote = isReady
+    ? 'LLM Wiki is configured and page metadata is visible without exposing wiki content.'
+    : isEmpty
+      ? 'LLM Wiki exists but has no entity, concept, comparison, or query pages yet.'
+      : isError
+        ? `Unable to inspect LLM Wiki status${status.error ? ': ' + status.error : ''}.`
+        : 'No LLM Wiki directory was found. Set WIKI_PATH or skills.config.wiki.path to enable status visibility.';
+  return `
+    <div class="insights-card wiki-status-card" id="llmWikiStatusCard">
+      <div class="wiki-status-head">
+        <div>
+          <div class="insights-card-title">LLM Wiki</div>
+          <div class="wiki-status-sub">Knowledge-base observability</div>
+        </div>
+        <span class="wiki-status-badge ${badgeClass}">${esc(badgeText)}</span>
+      </div>
+      <div class="wiki-status-note">${esc(statusNote)}</div>
+      <div class="wiki-status-grid">
+        <div><span>Enabled</span><strong>${status.enabled ? 'Yes' : 'No'}</strong></div>
+        <div><span>Entries</span><strong>${Number(status.entry_count || 0).toLocaleString()}</strong></div>
+        <div><span>Pages</span><strong>${Number(status.page_count || 0).toLocaleString()}</strong></div>
+        <div><span>raw/ files</span><strong>${Number(status.raw_source_count || 0).toLocaleString()}</strong></div>
+        <div><span>Last updated</span><strong>${esc(_formatLlmWikiTimestamp(status.last_updated))}</strong></div>
+        <div><span>Last writer</span><strong>${esc(status.last_writer || 'Not available')}</strong></div>
+      </div>
+      <div class="wiki-status-footer">
+        <span>${esc(toggleNote)}</span>
+        <a href="${esc(docsUrl)}" target="_blank" rel="noopener noreferrer">Docs</a>
+      </div>
+    </div>`;
+}
+
+function _renderInsights(d, box, wikiStatus) {
   const fmtNum = n => Number(n || 0).toLocaleString();
   const fmtCost = c => {
     const value = Number(c || 0);
@@ -2106,6 +2158,7 @@ function _renderInsights(d, box) {
     </div>`;
 
   box.innerHTML = `
+    ${_renderLlmWikiStatus(wikiStatus)}
     <div class="insights-grid">
       ${overviewCards.map(c => `<div class="insights-stat"><div class="insights-stat-icon">${c.icon}</div><div class="insights-stat-info"><div class="insights-stat-value">${c.value}</div><div class="insights-stat-label">${esc(c.label)}</div></div></div>`).join('')}
     </div>
