@@ -2524,6 +2524,20 @@ def get_available_models() -> dict:
             for pid in sorted(detected_providers):
                 if pid.startswith("custom:") and pid in _named_custom_groups:
                     _nc_display, _nc_models = _named_custom_groups[pid]
+                    # If all named-group models were deduped (already auto-detected
+                    # from base_url /v1/models), fall back to auto-detected models
+                    # instead of silently dropping the group (issue #1619).
+                    #
+                    # Per Opus advisor on stage-295: the load-bearing fix for the
+                    # reporter's symptom is the api/routes.py:/api/models/live
+                    # broadening to handle custom:* slugs. This block is defensive
+                    # belt-and-braces — under current _named_custom_groups
+                    # population logic (atomic add+append inside the same dedup
+                    # guard at line ~2640), an empty list shouldn't reach here.
+                    # Kept for future-proofing in case the population logic
+                    # changes (e.g. supporting model-less custom_providers entries).
+                    if not _nc_models:
+                        _nc_models = auto_detected_models_by_provider.get(pid, [])
                     if _nc_models:
                         groups.append({"provider": _nc_display, "provider_id": pid, "models": _nc_models})
                     continue

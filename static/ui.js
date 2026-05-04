@@ -1191,21 +1191,35 @@ window.addEventListener('resize',function(){
 // Uses a guard flag to avoid the race where programmatic scrolls (from
 // scrollIfPinned / scrollToBottom) re-set _scrollPinned=true, overriding
 // the user's explicit scroll-up.  Fixes #1469 / #1360.
+// rAF-debounced scroll listener (issue #1360): on macOS WKWebView, trackpad
+// momentum scrolling fires scroll events that interleave with the
+// _programmaticScroll setTimeout(0) guard. A mid-momentum scroll event can
+// either get swallowed (_programmaticScroll still true) or falsely report
+// nearBottom (momentum hasn't settled). rAF defers the nearBottom check to
+// the next paint frame when the browser's scroll position has settled.
+// A hysteresis counter requires two consecutive near-bottom samples before
+// re-pinning, preventing accidental re-pin during initial deceleration.
 let _scrollPinned=true;
 let _programmaticScroll=false;
+let _nearBottomCount=0;
 (function(){
   const el=document.getElementById('messages');
   if(!el) return;
+  let _scrollRaf=0;
   el.addEventListener('scroll',()=>{
     if(_programmaticScroll) return; // ignore scrolls we triggered ourselves
-    const nearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<250;
-    _scrollPinned=nearBottom;
-    const btn=$('scrollToBottomBtn');
-    if(btn) btn.style.display=_scrollPinned?'none':'flex';
-    // Load older messages when scrolled near the top
-    if(el.scrollTop<80 && typeof _messagesTruncated!=='undefined' && _messagesTruncated && typeof _loadOlderMessages==='function'){
-      _loadOlderMessages();
-    }
+    cancelAnimationFrame(_scrollRaf);
+    _scrollRaf=requestAnimationFrame(()=>{
+      const nearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<250;
+      _nearBottomCount=nearBottom?_nearBottomCount+1:0;
+      _scrollPinned=_nearBottomCount>=2;
+      const btn=$('scrollToBottomBtn');
+      if(btn) btn.style.display=_scrollPinned?'none':'flex';
+      // Load older messages when scrolled near the top
+      if(el.scrollTop<80 && typeof _messagesTruncated!=='undefined' && _messagesTruncated && typeof _loadOlderMessages==='function'){
+        _loadOlderMessages();
+      }
+    });
   });
 })();
 function _fmtTokens(n){if(!n||n<0)return'0';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'k';return String(n);}
@@ -1665,7 +1679,6 @@ function renderMd(raw){
   s=s.replace(/<i>([\s\S]*?)<\/i>/gi,(_,t)=>'*'+t+'*');
   s=s.replace(/<code>([^<]*?)<\/code>/gi,(_,t)=>'`'+t+'`');
   s=s.replace(/<br\s*\/?>/gi,'\n');
-  s=s.replace(/\x00R(\d+)\x00/g,(_,i)=>rawPreStash[+i]);
   // ── Glued-bold-heading lift (issue #1446) ────────────────────────────────
   // LLMs in thinking/reasoning mode frequently emit a "section header" glued
   // to the end of the previous paragraph with no whitespace, like:
@@ -1797,6 +1810,9 @@ function renderMd(raw){
   s=s.replace(/(<a\b[^>]*>[\s\S]*?<\/a>)/g,m=>{_a_stash.push(m);return `\x00A${_a_stash.length-1}\x00`;});
   s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g,(_,label,url)=>`<a href="${url.replace(/"/g,'%22')}" target="_blank" rel="noopener">${esc(label)}</a>`);
   s=s.replace(/\x00A(\d+)\x00/g,(_,i)=>_a_stash[+i]);
+  // Restore raw <pre> only after markdown rewrites so literal preformatted
+  // content stays placeholder-protected, then let the sanitizer normalize tags.
+  s=s.replace(/\x00R(\d+)\x00/g,(_,i)=>rawPreStash[+i]);
   // Sanitize any remaining HTML tags.  The renderer intentionally returns
   // HTML and inserts it with innerHTML later, so tag names alone are not enough:
   // raw/model-provided HTML like <img onerror=...> or <a href="javascript:...">
@@ -1911,7 +1927,15 @@ function renderMd(raw){
   // with <br>. Token \x00E (next free after B D F G L M C O A).
   // Fixes #745: code blocks collapse to single line when not preceded by blank line.
   const _pre_stash=[];
-  s=s.replace(/(<div class="pre-header">[\s\S]*?<\/div>)?<pre>[\s\S]*?<\/pre>|<div class="(mermaid-block|katex-block)"[\s\S]*?<\/div>/g,m=>{
+  // #1463 / #1618: regex must match <pre> with ANY attributes — PR #484 added
+  // <pre class="tree-raw-view"> for JSON/YAML and <pre class="diff-block"> for
+  // diff/patch which the literal-<pre> shape missed. Newlines inside those
+  // blocks were falling through to the paragraph wrap below and getting
+  // converted to <br>, causing the YAML/JSON/diff collapse. PR #1516's CSS
+  // fix targeted the wrong layer (Prism token white-space) — by the time it
+  // ran, the \n had already been replaced. The CSS rule is kept as defense
+  // in depth.
+  s=s.replace(/(<div class="pre-header">[\s\S]*?<\/div>)?<pre[^>]*>[\s\S]*?<\/pre>|<div class="(mermaid-block|katex-block)"[\s\S]*?<\/div>/g,m=>{
     _pre_stash.push(m);
     return '\x00E'+(_pre_stash.length-1)+'\x00';
   });
