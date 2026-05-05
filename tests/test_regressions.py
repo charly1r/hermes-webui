@@ -415,7 +415,7 @@ def test_loadSession_inflight_restores_live_tool_cards(cleanup_test_sessions):
     # INFLIGHT branch must call appendLiveToolCard
     inflight_idx = src.find("if(INFLIGHT[sid]){")
     assert inflight_idx >= 0, "INFLIGHT branch not found in loadSession"
-    inflight_block = src[inflight_idx:inflight_idx+500]
+    inflight_block = src[inflight_idx:inflight_idx+900]
     assert "appendLiveToolCard" in inflight_block,         "loadSession INFLIGHT branch must restore live tool cards via appendLiveToolCard"
     assert "clearLiveToolCards" in inflight_block,         "loadSession INFLIGHT branch must clear old live cards before restoring"
 
@@ -599,6 +599,29 @@ def test_loadSession_inflight_sets_busy_before_renderMessages(cleanup_test_sessi
     assert render_pos >= 0, "loadSession INFLIGHT branch must call renderMessages()"
     assert busy_pos < render_pos, \
         "loadSession must set S.busy=true before renderMessages() to avoid duplicate tool cards"
+
+
+def test_loadSession_inflight_sets_active_stream_before_replaying_live_tool_cards(cleanup_test_sessions):
+    """#1715: returning to an active chat must replay persisted tool cards.
+
+    appendLiveToolCard() intentionally no-ops unless S.activeStreamId is already
+    set for the viewed streaming session. If loadSession() restores S.toolCalls
+    and replays them before assigning S.activeStreamId, the compact Activity
+    counter drops the previously-seen tools after a focus change.
+    """
+    src = (REPO_ROOT / "static/sessions.js").read_text()
+    inflight_idx = src.find("if(INFLIGHT[sid]){")
+    assert inflight_idx >= 0, "INFLIGHT branch not found in loadSession"
+    inflight_block = src[inflight_idx:inflight_idx+1000]
+    active_pos = inflight_block.find("S.activeStreamId=activeStreamId;")
+    replay_pos = inflight_block.find("appendLiveToolCard(tc);")
+    attach_pos = inflight_block.find("attachLiveStream(sid, activeStreamId")
+    assert active_pos >= 0, "loadSession INFLIGHT branch must restore S.activeStreamId"
+    assert replay_pos >= 0, "loadSession INFLIGHT branch must replay persisted live tool cards"
+    assert active_pos < replay_pos, \
+        "S.activeStreamId must be restored before appendLiveToolCard() replays persisted tools"
+    assert attach_pos < 0 or active_pos < attach_pos, \
+        "S.activeStreamId should also be restored before SSE reattach can deliver more tool events"
 
 
 def test_streaming_bridge_accepts_current_tool_progress_callback_signature(cleanup_test_sessions):

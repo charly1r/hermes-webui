@@ -1,5 +1,41 @@
 # Hermes Web UI -- Changelog
 
+## [v0.51.6] — 2026-05-05 — 5-PR full-sweep batch
+
+### Added
+
+- **PR #1719** by @Michaelyklam — Show active elapsed time in compact activity (closes #1716). Adds an in-progress elapsed counter while the agent is still working, complementing the already-shipped post-completion duration. Backend `/api/chat/start` now returns `pending_started_at` timestamp; UI uses that as the durable source of truth (instead of a browser-local timer that resets on rerender/reconnect). The compact Activity-row timer settles back to the existing post-completion duration display when the turn finishes. Cleanup timer paths attached to `setBusy(false)`, `clearLiveToolCards()`, `removeThinking()` so the counter stops on every terminal path (turn ends, session switch, error).
+
+### Fixed
+
+- **PR #1717** by @ai-ag2026 — Preserve imported session lineage visibility. Three independent fixes for the CLI/messaging session import path: (a) preserve `parent_session_id` when importing CLI/messaging sessions into WebUI sidecars (lineage was being dropped); (b) avoid shrinking sidebar `message_count` when CLI metadata has fewer messages than a repaired/aggregate sidecar (the sidebar was reverting to the shorter count); (c) prefer the longer WebUI sidecar transcript for messaging `/api/session` responses when it contains recovered visible history. 4 new regression tests cover lineage import, read-only imports, sidebar counts, and the recovered-sidecar transcript-selection path.
+- **PR #1718** by @Michaelyklam — Preserve Activity count across chat focus changes (closes #1715). Root cause: `loadSession()` restored `S.toolCalls` from the per-session `INFLIGHT` cache, then replayed those tools through `appendLiveToolCard()` BEFORE restoring `S.activeStreamId`. `appendLiveToolCard()` intentionally no-ops without `S.activeStreamId`, so the replayed tools were dropped from the compact Activity group after focus changed. Fix: restore `S.activeStreamId` BEFORE the tool replay loop. Source-level regression assertion pins the new ordering.
+- **PR #1720** by @Michaelyklam — Fix backend tool snippet cap for "Show more" (closes #1714). Frontend already had logic to preview long tool snippets at ~800 chars and reveal the rest with "Show more", but the backend was truncating persisted tool snippets to 200 chars — so the frontend threshold could never be reached. Raises the persisted snippet cap from 200 → 4000 chars (conservative; medium tool outputs can use the existing affordance, huge outputs are still bounded so session JSON doesn't balloon). Per-issue maintainer-confirmed direction.
+- **PR #1722** by @ai-ag2026 — Suppress stale preserved task lists. After context compaction or reload, the UI was re-rendering the most recent preserved compression task-list card from history even after the actual todo state had moved on (all items completed/cancelled). Stale tasks reappeared as if still pending. Fix: only treat `pending` and `in_progress` todos as "active" when deciding whether to keep the preserved task list visible. Regression test covers the stale-preserved-task-list suppression path. Handles the `latestTodos === null` fallback correctly (no fresh todo tool message found → keep showing the preserved card, original behavior).
+
+### Tests
+
+4527 → **4537 passing** (+10 regression tests across the 5 PRs). 0 regressions. Full suite ~149s.
+
+### Pre-release verification
+
+- Stage-303: 5 PRs merged with zero conflicts (each rebased clean against current master). Zero stage-applied edits.
+- All JS files syntax-clean (`node -c static/{messages,sessions,ui}.js`).
+- All Python files syntax-clean (py_compile on every changed file).
+- Live browser walkthrough on port 8789:
+  - PR #1718 ordering fix: `S.activeStreamId` is set BEFORE `appendLiveToolCard()` replay (CORRECT-ORDER verified in source).
+  - PR #1719 `pending_started_at` flows through to messages/UI; elapsed timer code present.
+  - PR #1722 todo state filter present in source.
+  - PR #1717 sidebar module helpers present.
+  - Sidebar scroll holds at 200 (carry-over fix from v0.51.2 preserved).
+  - System health card from v0.51.5 still working in Insights (CPU 15%, RAM 48.3%, disk 33.9%).
+- Opus advisor: SHIP, 6/6 verification clean, 0 MUST-FIX, 0 SHOULD-FIX. Two non-blocking observations:
+  - #1717 "longer sidecar wins" heuristic won't honor explicit CLI-side message deletions (low likelihood for messaging sessions; documented).
+  - #1719 elapsed timer is client-clock-relative; gross browser clock drift will distort live counter (cosmetic; follow-up could send server-clock anchor).
+
+Closes #1714, #1715, #1716.
+
+
 ## [v0.51.5] — 2026-05-05 — 4-PR full-sweep batch
 
 ### Added

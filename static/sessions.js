@@ -430,6 +430,10 @@ async function loadSession(sid){
     S.messages=INFLIGHT[sid].messages;
     S.toolCalls=(INFLIGHT[sid].toolCalls||[]);
     S.busy=true;
+    // appendLiveToolCard() is guarded by S.activeStreamId; restore it before
+    // replaying persisted live tools so the compact Activity count survives
+    // switching away from and back to an active chat (#1715).
+    S.activeStreamId=activeStreamId;
     syncTopbar();renderMessages();appendThinking();loadDir('.');
     clearLiveToolCards();
     if(typeof placeLiveToolCardsHost==='function') placeLiveToolCardsHost();
@@ -440,7 +444,6 @@ async function loadSession(sid){
     startApprovalPolling(sid);
     if(typeof startClarifyPolling==='function') startClarifyPolling(sid);
     if(typeof _fetchYoloState==='function') _fetchYoloState(sid);
-    S.activeStreamId=activeStreamId;
     if(INFLIGHT[sid].reattach&&activeStreamId&&typeof attachLiveStream==='function'){
       INFLIGHT[sid].reattach=false;
       if (_loadingSessionId !== sid) return;
