@@ -1,5 +1,34 @@
 # Hermes Web UI -- Changelog
 
+## [v0.51.9] — 2026-05-06 — 2-PR full-sweep batch
+
+### Fixed
+
+- **PR #1735** by @dso2ng — Keep saved running sessions sidebar-only on root boot (slice of #1694). When a fresh root `/` tab restored a localStorage-saved last session and that session was still running (`active_stream_id` or `pending_user_message` present), the boot path projected the running session into the active pane and the new tab looked busy with another tab's stream. New `_savedSessionShouldStaySidebarOnly()` helper does a metadata-only `/api/session?messages=0&resolve_model=0` probe; if the saved session is running, root `/` boot leaves the pane empty/idle and refreshes the sidebar instead of calling `loadSession(savedLocal)`. Explicit `/session/<sid>` URL behavior unchanged — the gate is `!urlSession && savedLocal`. Probe failure fails open (legacy projecting behavior). 4 new regression tests + 1 cross-tab static-assertion scope-fix.
+- **PR #1738** by @Michaelyklam — Repair stale OpenAI session models for Codex (closes #1734). Existing sessions with `model=openai/gpt-...` (OpenRouter shape) and no saved `model_provider` were being treated as compatible by `_resolve_compatible_session_model_state()` when the active provider was OpenAI Codex (both normalize to "openai" family), so they passed through. At runtime, `resolve_model_provider()` then interpreted that slash-qualified ID as an OpenRouter selection under Codex, producing a misleading provider-credential failure. New branch in `_resolve_compatible_session_model_state()` at `api/routes.py:937-955` repairs the legacy no-`model_provider` shape: when `raw_active_provider == "openai-codex" AND model_provider == "openai" AND requested_provider is None AND default_model`, swap the session to active Codex default and persist `model_provider="openai-codex"`. Explicit OpenRouter selections preserved by the line 838 early return + the `requested_provider is None` gate.
+
+### In-stage absorbed fixes
+
+**Opus-applied fix (absorbed in-release):**
+
+- **#1738 follow-up — persist openai-codex provider unconditionally on repair.** Opus stage-303 advisor flagged that the catalog-coverage branch produces a redundant repair-write per chat-start when the active Codex default is itself slash-prefixed (theoretical edge case — Codex defaults are bare `gpt-...` in practice). Drop the conditional `_should_attach_codex_provider_context` check and unconditionally attach `raw_active_provider` ("openai-codex") on this repair path. Once the session has been decided to belong to Codex, that decision is persisted so the same shape can't re-trigger the repair.
+
+### Tests
+
+4584 → **4590 passing** (+6 regression tests across the 2 PRs). 0 regressions. Full suite ~138s. Stably green across multiple clean runs.
+
+### Pre-release verification
+
+- Stage-303: 2 PRs merged with zero conflicts (each rebased clean onto current master).
+- All JS files syntax-clean (`node -c static/boot.js`).
+- All Python files syntax-clean.
+- pytest: 4590 passed, 0 failed (verified across multiple runs).
+- `scripts/run-browser-tests.sh`: all 11 endpoints PASS on isolated port 8789 with stage-303 binary.
+- Pre-stamp re-fetch: both PR heads still match local rebases — no late contributor commits.
+- Opus advisor: SHIP, 5/5 verification questions clean, 0 MUST-FIX, 1 SHOULD-FIX absorbed (Codex provider context unconditional persistence).
+
+Closes #1734.
+
 ## [v0.51.8] — 2026-05-06 — 7-PR full-sweep batch
 
 ### Added
