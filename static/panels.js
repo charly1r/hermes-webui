@@ -1272,10 +1272,13 @@ async function loadKanban(animate){
     _kanbanSetSelectOptions($('kanbanAssigneeFilter'), _kanbanBoard.assignees || (assignees && assignees.assignees) || (config && config.assignees), 'kanban_all_assignees');
     _kanbanSetSelectOptions($('kanbanTenantFilter'), _kanbanBoard.tenants, 'kanban_all_tenants');
     await loadKanbanStats();
-    // Refresh the multi-board switcher (and resolve which board to show
-    // from localStorage / server state). Best-effort — failures hide the
-    // switcher rather than blocking the panel from rendering.
-    await loadKanbanBoards();
+    // Note: PR #1828 (v0.51.20) moved the boards refresh to the start of
+    // loadKanban() so the active board is resolved BEFORE board-scoped
+    // requests fire. The previous tail-of-function refresh has been removed
+    // to avoid doubling /api/kanban/boards traffic during SSE-driven
+    // refreshes (debounced at 250ms via _scheduleKanbanRefresh). The
+    // 30-second poll started by _kanbanStartPolling() picks up any board
+    // state changes that arrive after this render.
     _kanbanStartPolling();
     _kanbanRenderBoard();
   } catch(e) {
