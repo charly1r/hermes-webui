@@ -2629,9 +2629,13 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_get
 
-        if handle_kanban_get(handler, parsed):
-            return True
-        return _kanban_unknown_endpoint(handler, parsed, "GET")
+        # Only treat an explicit False as "no route matched". None means the
+        # bridge already sent a response via bad()/j() — emitting our own 404
+        # on top of that produces concatenated JSON bodies on the wire.
+        result = handle_kanban_get(handler, parsed)
+        if result is False:
+            return _kanban_unknown_endpoint(handler, parsed, "GET")
+        return True
     if parsed.path == "/api/wiki/status":
         return _handle_llm_wiki_status(handler, parsed)
     if parsed.path == "/api/logs":
@@ -3429,9 +3433,10 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_post
 
-        if handle_kanban_post(handler, parsed, body):
-            return True
-        return _kanban_unknown_endpoint(handler, parsed, "POST")
+        result = handle_kanban_post(handler, parsed, body)
+        if result is False:
+            return _kanban_unknown_endpoint(handler, parsed, "POST")
+        return True
     if parsed.path == "/api/dashboard/config":
         from api import dashboard_probe
 
@@ -4607,9 +4612,10 @@ def handle_patch(handler, parsed) -> bool:
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_patch
 
-        if handle_kanban_patch(handler, parsed, body):
-            return True
-        return _kanban_unknown_endpoint(handler, parsed, "PATCH")
+        result = handle_kanban_patch(handler, parsed, body)
+        if result is False:
+            return _kanban_unknown_endpoint(handler, parsed, "PATCH")
+        return True
     return False
 
 
@@ -4621,9 +4627,10 @@ def handle_delete(handler, parsed) -> bool:
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_delete
 
-        if handle_kanban_delete(handler, parsed, body):
-            return True
-        return _kanban_unknown_endpoint(handler, parsed, "DELETE")
+        result = handle_kanban_delete(handler, parsed, body)
+        if result is False:
+            return _kanban_unknown_endpoint(handler, parsed, "DELETE")
+        return True
     return False
 
 # ── GET route helpers ─────────────────────────────────────────────────────────
