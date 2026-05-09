@@ -1468,6 +1468,11 @@ def _custom_slug_rest_looks_like_host_port(rest: str) -> bool:
     return False
 
 
+def _get_provider_base_url(provider_id):
+    """Look up the configured base_url for a provider (e.g. lmstudio)."""
+    prov_cfg = cfg.get("providers", {}).get(provider_id, {}) or {}
+    return (prov_cfg.get("base_url") or "").rstrip("/") or None
+
 def resolve_model_provider(model_id: str) -> tuple:
     """Resolve model name, provider, and base_url for AIAgent.
 
@@ -1572,7 +1577,7 @@ def resolve_model_provider(model_id: str) -> tuple:
                 and provider_hint not in _PROVIDER_DISPLAY
                 and not provider_hint.startswith("custom:")):
             provider_hint, bare_model = inner.split(":", 1)
-        return bare_model, provider_hint, None
+        return bare_model, provider_hint, _get_provider_base_url(provider_hint)
 
     if "/" in model_id:
         prefix, bare = model_id.split("/", 1)
@@ -2511,6 +2516,45 @@ def get_available_models() -> dict:
                         }
                     )
 
+            # Also badge explicitly configured providers (from config.yaml
+            # providers section) so they appear at the top of the dropdown.
+            _cfg_providers = cfg.get("providers", {}) or {}
+            if isinstance(_cfg_providers, dict):
+                for _cpid, _cpcfg in _cfg_providers.items():
+                    _canonical_pid = _canonicalise_provider_id(_cpid)
+                    if not _canonical_pid:
+                        continue
+                    # Skip providers already covered by primary/fallback entries
+                    _already_badged = any(
+                        e["provider"] == _canonical_pid for e in configured_entries
+                    )
+                    if _already_badged:
+                        continue
+                    # Only badge providers that have models in the groups list
+                    _group = next(
+                        (g for g in groups
+                         if (g.get("provider_id") or "").lower() == _canonical_pid.lower()),
+                        None,
+                    )
+                    if not _group:
+                        continue
+                    # Add all models from this provider as configured entries
+                    for _m in _group.get("models", []):
+                        _mid = (_m.get("id") or "").strip()
+                        _mlabel = (_m.get("label") or _mid).strip()
+                        if not _mid:
+                            continue
+                        # Strip @provider: prefix for the model name lookup
+                        _bare_model = _mid.split(":", 1)[-1] if ":" in _mid else _mid
+                        configured_entries.append(
+                            {
+                                "provider": _canonical_pid,
+                                "model": _bare_model,
+                                "role": "configured",
+                                "label": "Configured",
+                            }
+                        )
+
             option_ids = [m.get("id", "") for g in groups for m in g.get("models", []) if m.get("id")]
             option_lookup = {str(opt_id): str(opt_id) for opt_id in option_ids}
             option_provider_lookup = {
@@ -2774,6 +2818,9 @@ def get_available_models() -> dict:
                 detected_providers.add("opencode-zen")
             if all_env.get("OPENCODE_GO_API_KEY"):
                 detected_providers.add("opencode-go")
+            # LM Studio: detect via LM_API_KEY + LM_BASE_URL in ~/.hermes/.env
+            if all_env.get("LM_API_KEY") and all_env.get("LM_BASE_URL"):
+                detected_providers.add("lmstudio")
 
         # Also detect providers explicitly listed in config.yaml providers section.
         # A user may configure a provider key via config.yaml providers.<name>.api_key
@@ -3360,6 +3407,58 @@ def get_available_models() -> dict:
                         if extras:
                             group_entry["extra_models"] = extras
                         groups.append(group_entry)
+                elif pid == "lmstudio":
+                    # LM Studio is a local server — fetch live loaded models via
+                    # the OpenAI-compatible /v1/models endpoint (#WebUI).
+                    raw_models = []
+                    try:
+                        from hermes_cli.models import provider_model_ids as _provider_model_ids
+
+                        lm_ids = _provider_model_ids("lmstudio") or []
+                        if not lm_ids:
+                            # Fallback: fetch directly using config.yaml providers.lmstudio.base_url
+                            # when env vars (LM_BASE_URL) aren't yet loaded into os.environ.
+                            # This fixes the race where get_available_models() runs before
+                            # the profile's .env has been injected into the process environment.
+                            lm_cfg = cfg.get("providers", {}).get("lmstudio", {})
+                            if isinstance(lm_cfg, dict):
+                                lm_base_url = str(lm_cfg.get("base_url") or "").strip().rstrip("/")
+                                lm_api_key = str(lm_cfg.get("api_key") or "").strip()
+                                if lm_base_url:
+                                    headers = {"User-Agent": "OpenAI/Python 1.0"}
+                                    if lm_api_key:
+                                        headers["Authorization"] = f"Bearer {lm_api_key}"
+                                    endpoint = (lm_base_url + "/models").rstrip("/")
+                                    try:
+                                        import urllib.request as _urlreq
+
+                                        req = _urlreq.Request(endpoint, method="GET", headers=headers)
+                                        with _urlreq.urlopen(req, timeout=5) as resp:
+                                            lm_data = json.loads(resp.read().decode())
+                                        for m in (lm_data.get("data") or []):
+                                            if isinstance(m, dict):
+                                                mid = str(m.get("id") or "").strip()
+                                                if mid and {"id": mid, "label": mid} not in raw_models:
+                                                    raw_models.append({"id": mid, "label": mid})
+                                    except Exception:
+                                        pass  # fall through to hermes_cli below
+
+                        if lm_ids:
+                            raw_models = [
+                                {"id": mid, "label": mid} for mid in lm_ids
+                            ]
+                    except Exception:
+                        logger.warning("Failed to load LM Studio models from hermes_cli")
+
+                    if raw_models:
+                        models = _apply_provider_prefix(raw_models, pid, active_provider)
+                        groups.append(
+                            {
+                                "provider": provider_name,
+                                "provider_id": pid,
+                                "models": models,
+                            }
+                        )
                 elif pid in _PROVIDER_MODELS or pid in cfg.get("providers", {}):
                     provider_cfg = cfg.get("providers", {}).get(pid, {})
                     raw_models = []
