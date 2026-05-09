@@ -18,12 +18,19 @@ from api.config import STATE_DIR, load_settings
 logger = logging.getLogger(__name__)
 
 
+# Default session TTL — 30 days. Kept as a module-level constant for backwards
+# compatibility with downstream code and regression tests that import it.
+# At runtime, prefer ``_resolve_session_ttl()`` which honours the env var and
+# settings.json overrides; this constant is the floor / fallback.
+SESSION_TTL = 86400 * 30  # 30 days
+
+
 def _resolve_session_ttl() -> int:
     """Resolve session TTL from env > settings > default.
 
     Priority mirrors get_password_hash(): HERMES_WEBUI_SESSION_TTL env var
-    first, then settings.json, falling back to 30 days. Clamped to
-    [60s, 1 year] to prevent runaway cookies or self-lockout.
+    first, then settings.json, falling back to ``SESSION_TTL`` (30 days).
+    Clamped to [60s, 1 year] to prevent runaway cookies or self-lockout.
     """
     env_v = os.getenv('HERMES_WEBUI_SESSION_TTL', '').strip()
     if env_v.isdigit():
@@ -34,7 +41,7 @@ def _resolve_session_ttl() -> int:
     v = s.get('session_ttl_seconds')
     if isinstance(v, int) and 60 <= v <= 86400 * 365:
         return v
-    return 86400 * 30  # current default (30 days)
+    return SESSION_TTL
 
 
 # ── Public paths (no auth required) ─────────────────────────────────────────
