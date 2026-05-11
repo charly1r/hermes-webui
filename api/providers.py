@@ -1047,6 +1047,10 @@ def get_providers() -> dict[str, Any]:
             cp_name = str(cp["name"]).strip()
             cp_id = _custom_provider_slug_from_name(cp_name)
             if not cp_id:
+                logger.warning(
+                    "Custom provider entry %r produced empty slug; skipping",
+                    cp_name,
+                )
                 continue
             # Collect models from `models` list or `model` single
             cp_models = []
