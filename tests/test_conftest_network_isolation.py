@@ -97,38 +97,37 @@ def test_public_ipv4_is_blocked():
     assert _conftest._hermes_addr_is_local("204.0.113.0") is False  # outside
 
 
-def test_allow_outbound_network_fixture_disables_the_block_for_a_public_ip(allow_outbound_network):
-    """When a test opts in to the fixture, the block does NOT fire on a
-    destination that is otherwise blocked.
+def test_allow_outbound_network_fixture_unswaps_the_wrappers(allow_outbound_network):
+    """When a test opts in to the fixture, socket.create_connection and
+    socket.socket.connect are restored to their real (unwrapped) implementations
+    for this test only.
 
-    Uses 8.8.8.8 (Google DNS, a real public IPv4 not in any allow-list)
-    so we can prove the fixture actually disabled the wrapper.  Without
-    the fixture, the wrapper would raise OSError("hermes test network
-    isolation: ...").  With the fixture, the real socket.create_connection
-    runs and we either succeed (port 53 is genuinely open) or fail with
-    a *real* connect error — never with our wrapper's message.
+    Direct identity check is safer than a behavioral test: it doesn't depend
+    on whether the CI runner has outbound network access, only on whether the
+    fixture's monkeypatch actually swapped the symbols.
     """
-    err_msg = ""
-    try:
-        sock = socket.create_connection(("8.8.8.8", 53), timeout=2)
-        sock.close()
-        # Success is fine — proves the wrapper got out of the way.
-        return
-    except OSError as e:
-        err_msg = str(e)
-
-    # If we did get an OSError, it must NOT be from our wrapper.
-    assert "hermes test network isolation" not in err_msg, (
-        f"allow_outbound_network fixture should disable the block, but got: {err_msg}"
+    import tests.conftest as _conftest
+    # Inside the fixture, socket.create_connection should be the REAL one
+    # (the one captured before the module-level wrap), not the blocked wrapper.
+    assert socket.create_connection is _conftest._REAL_CREATE_CONNECTION, (
+        "allow_outbound_network fixture did not restore the real create_connection"
+    )
+    assert socket.socket.connect is _conftest._REAL_SOCKET_CONNECT, (
+        "allow_outbound_network fixture did not restore the real socket.connect"
     )
 
 
 def test_block_is_active_outside_the_fixture():
-    """Sanity: a test that does NOT request the fixture has the block active.
+    """Sanity: a test that does NOT request the fixture has the wrapped
+    socket.create_connection installed (not the real one).
 
-    Pairs with the test above to prove the fixture toggle is real — without
-    this paired test the fixture test would self-pass even if the toggle
-    didn't work (since the block is on by default and the wrapper-or-real
-    distinction is what matters)."""
-    with pytest.raises(OSError, match="hermes test network isolation"):
-        socket.create_connection(("8.8.8.8", 53), timeout=1)
+    Pairs with the test above to prove the fixture swap is real — the
+    fixture test confirms the unswap; this test confirms the default-on
+    state."""
+    import tests.conftest as _conftest
+    assert socket.create_connection is _conftest._hermes_blocked_create_connection, (
+        "default state should have the blocked wrapper installed on socket.create_connection"
+    )
+    assert socket.socket.connect is _conftest._hermes_blocked_socket_connect, (
+        "default state should have the blocked wrapper installed on socket.socket.connect"
+    )

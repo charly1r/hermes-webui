@@ -205,8 +205,6 @@ import socket as _hermes_test_socket
 _REAL_CREATE_CONNECTION = _hermes_test_socket.create_connection
 _REAL_SOCKET_CONNECT = _hermes_test_socket.socket.connect
 
-_ALLOW_OUTBOUND = False  # toggled by the allow_outbound_network fixture
-
 
 def _hermes_addr_is_local(host: str) -> bool:
     """Return True for loopback / RFC1918 / link-local / reserved-TLD hosts."""
@@ -258,8 +256,6 @@ def _hermes_addr_is_local(host: str) -> bool:
 
 
 def _hermes_blocked_create_connection(address, *a, **kw):
-    if _ALLOW_OUTBOUND:
-        return _REAL_CREATE_CONNECTION(address, *a, **kw)
     try:
         host = address[0]
     except (TypeError, IndexError):
@@ -274,8 +270,6 @@ def _hermes_blocked_create_connection(address, *a, **kw):
 
 
 def _hermes_blocked_socket_connect(self, address):
-    if _ALLOW_OUTBOUND:
-        return _REAL_SOCKET_CONNECT(self, address)
     try:
         host = address[0]
     except (TypeError, IndexError):
@@ -292,19 +286,22 @@ _hermes_test_socket.socket.connect = _hermes_blocked_socket_connect
 
 
 @pytest.fixture
-def allow_outbound_network():
+def allow_outbound_network(monkeypatch):
     """Opt-in to real outbound network for the duration of one test.
 
-    Use sparingly. Today only `test_dns_resolution_failure` needs this —
-    it intentionally exercises a real DNS lookup on a reserved-TLD hostname
-    to verify the probe maps `socket.gaierror` to `error='dns'`.
+    Swaps `socket.create_connection` and `socket.socket.connect` back to the
+    real (unwrapped) implementations for this test only, then monkeypatch
+    teardown restores the wrapped versions. Direct swap is more reliable
+    than a module-global toggle on CI runners where wrapper-closure
+    lookup semantics can surprise.
+
+    Use sparingly. Today zero tests in the repo call this — the previous
+    test_dns_resolution_failure case was rewritten to mock socket.getaddrinfo
+    instead, which is fully hermetic.
     """
-    global _ALLOW_OUTBOUND
-    _ALLOW_OUTBOUND = True
-    try:
-        yield
-    finally:
-        _ALLOW_OUTBOUND = False
+    monkeypatch.setattr(_hermes_test_socket, "create_connection", _REAL_CREATE_CONNECTION)
+    monkeypatch.setattr(_hermes_test_socket.socket, "connect", _REAL_SOCKET_CONNECT)
+    yield
 
 
 
