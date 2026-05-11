@@ -117,4 +117,8 @@ def execute_plugin_command(command: str) -> str:
         result = resolve_plugin_command_result(handler(cmd_arg))
         return str(result or "(no output)")
     except Exception as exc:
-        return f"Plugin command error: {exc}"
+        # Don't leak raw exception str (paths, env, internal state) to the
+        # user-facing chat. Type name is enough for the user to know what
+        # class of failure occurred; full traceback lives in the server log.
+        logger.warning("Plugin command %r failed", cmd_base, exc_info=exc)
+        return f"Plugin command error: {type(exc).__name__}"
