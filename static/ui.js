@@ -5515,6 +5515,7 @@ function _syncToolCallGroupSummary(group){
   if(label){
     if(toolCount) label.textContent=`Activity: ${toolCount} tool${toolCount===1?'':'s'}`;
     else label.textContent='Activity';
+    label.setAttribute('data-sweep-label', label.textContent);
   }
   if(durationEl){
     if(group.getAttribute('data-live-tool-call-group')==='1'){
