@@ -217,6 +217,33 @@ def test_context_anchor_reference_uses_session_summary_fallback():
     assert "!!referenceText && (sessionCompressionAnchor!==null || sessionCompressionAnchorKey || sessionCompressionSummary)" in src
 
 
+def test_compression_anchor_matching_tolerates_legacy_missing_timestamp():
+    src = _read("static/ui.js")
+    start = src.find("function _compressionAnchorIndex")
+    assert start != -1, "compression anchor matcher not found"
+    end = src.find("function _compressionReferenceCardHtml", start)
+    assert end != -1, "compression reference renderer not found after anchor matcher"
+    helper = src[start:end]
+
+    assert "const anchorTs=String(anchorKey.ts??'');" in helper
+    assert "const candidateTs=String(candidate.ts??'');" in helper
+    assert "(!anchorTs||!candidateTs||candidateTs===anchorTs)" in helper
+
+
+def test_compression_anchor_index_is_translated_into_render_window():
+    src = _read("static/ui.js")
+    start = src.find("const insertionAnchorFull=_compressionAnchorIndex")
+    assert start != -1, "full compression anchor lookup not found"
+    end = src.find("let _prevSepKey=null", start)
+    assert end != -1, "message render loop marker not found after anchor lookup"
+    block = src[start:end]
+
+    assert "_compressionAnchorIndex(\n    visWithIdx," in block
+    assert "insertionAnchorFull<windowStart" in block
+    assert "insertionAnchorFull-windowStart" in block
+    assert "windowStart+renderVisWithIdx.length" in block
+
+
 def test_preserved_task_list_attaches_once_per_render():
     src = _read("static/ui.js")
 

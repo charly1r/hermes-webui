@@ -4472,9 +4472,11 @@ function _compressionAnchorIndex(visWithIdx, anchorKey, fallbackIdx=null){
     for(let i=visWithIdx.length-1;i>=0;i--){
       const candidate=_compressionMessageAnchorKey(visWithIdx[i].m);
       if(!candidate) continue;
+      const anchorTs=String(anchorKey.ts??'');
+      const candidateTs=String(candidate.ts??'');
       if(
         candidate.role===String(anchorKey.role||'') &&
-        String(candidate.ts??'')===String(anchorKey.ts??'') &&
+        (!anchorTs||!candidateTs||candidateTs===anchorTs) &&
         String(candidate.text||'')===String(anchorKey.text||'') &&
         Number(candidate.attachments||0)===Number(anchorKey.attachments||0)
       ){
@@ -4938,13 +4940,19 @@ function renderMessages(options){
       break;
     }
   }
-  const insertionAnchor=_compressionAnchorIndex(
-    renderVisWithIdx,
+  const insertionAnchorFull=_compressionAnchorIndex(
+    visWithIdx,
     compressionState ? compressionState.anchorMessageKey : sessionCompressionAnchorKey,
     compressionState
       ? (typeof compressionState.anchorVisibleIdx==='number' ? compressionState.anchorVisibleIdx : compressionState.anchorRawIdx)
       : sessionCompressionAnchor
   );
+  let insertionAnchor=null;
+  if(typeof insertionAnchorFull==='number'){
+    if(insertionAnchorFull<windowStart) insertionAnchor=renderVisWithIdx.length?0:null;
+    else if(insertionAnchorFull<windowStart+renderVisWithIdx.length) insertionAnchor=insertionAnchorFull-windowStart;
+    else insertionAnchor=renderVisWithIdx.length?renderVisWithIdx.length-1:null;
+  }
   let _prevSepKey=null;
   let currentAssistantTurn=null;
   const assistantSegments=new Map();
