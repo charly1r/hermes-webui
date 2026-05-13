@@ -3933,7 +3933,7 @@ function _hideUpdateSummaryPanel(){
   if(text) text.textContent='';
   if(links){links.replaceChildren();links.style.display='none';}
 }
-function _renderUpdateSummaryPanel(payload,data){
+function _renderUpdateSummaryPanel(payload,data,targetKey){
   const panel=$('updateSummaryPanel');
   const text=$('updateSummaryText');
   const links=$('updateSummaryDiffLinks');
@@ -3973,7 +3973,7 @@ function _renderUpdateSummaryPanel(payload,data){
   }else{
     text.textContent=(payload&&payload.summary)||payload||'No summary available.';
   }
-  const targets=_updateWhatsNewTargets(data||window._updateData||{});
+  const targets=_updateWhatsNewTargets(data||window._updateData||{}).filter((target)=>!targetKey||target.key===targetKey);
   if(links){
     links.replaceChildren();
     if(targets.length){
@@ -3984,12 +3984,13 @@ function _renderUpdateSummaryPanel(payload,data){
     }
   }
 }
-async function showWhatsNewSummary(){
+async function showWhatsNewSummary(target){
   const data=window._updateData||{};
-  _renderUpdateSummaryPanel({summary:'Writing a simple summary…'},data);
+  const scopedUpdates=target?{[target]:data[target]}:data;
+  _renderUpdateSummaryPanel({summary:'Writing a simple summary…'},data,target);
   try{
-    const res=await api('/api/updates/summary',{method:'POST',body:JSON.stringify({updates:data})});
-    _renderUpdateSummaryPanel(res,data);
+    const res=await api('/api/updates/summary',{method:'POST',body:JSON.stringify({updates:scopedUpdates,target:target||null})});
+    _renderUpdateSummaryPanel(res,data,target);
   }catch(e){
     console.warn('[updates] summary failed',e);
     _renderUpdateSummaryPanel({
@@ -3997,7 +3998,7 @@ async function showWhatsNewSummary(){
         {title:"What you'll notice",items:['Could not generate the summary right now.']},
         {title:'Worth knowing',items:['Try again later, or use the comparison links below for the raw update details.']},
       ],
-    },data);
+    },data,target);
   }
 }
 function _renderUpdateWhatsNewLinks(data){
@@ -4014,18 +4015,21 @@ function _renderUpdateWhatsNewLinks(data){
   container.style.display='block';
   const useSummary=(options.mode||'')==='summary'||window._whatsNewSummaryEnabled===true;
   if(useSummary){
-    const btn=document.createElement('button');
-    btn.type='button';
-    btn.className='linklike';
-    btn.style.color='var(--accent)';
-    btn.style.textDecoration='underline';
-    btn.style.background='none';
-    btn.style.border='0';
-    btn.style.padding='0';
-    btn.style.cursor='pointer';
-    btn.textContent='Generate summary of changes';
-    btn.onclick=()=>showWhatsNewSummary();
-    container.appendChild(btn);
+    targets.forEach((target,idx)=>{
+      if(idx>0) container.appendChild(document.createTextNode(' \u00b7 '));
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className='linklike';
+      btn.style.color='var(--accent)';
+      btn.style.textDecoration='underline';
+      btn.style.background='none';
+      btn.style.border='0';
+      btn.style.padding='0';
+      btn.style.cursor='pointer';
+      btn.textContent=target.key==='webui'?'Generate WebUI summary':'Generate Agent summary';
+      btn.onclick=()=>showWhatsNewSummary(target.key);
+      container.appendChild(btn);
+    });
     return;
   }
   _hideUpdateSummaryPanel();

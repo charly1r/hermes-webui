@@ -5280,6 +5280,7 @@ def handle_post(handler, parsed) -> bool:
         from api.updates import summarize_update_payload
 
         updates = body.get("updates") if isinstance(body, dict) else {}
+        target = body.get("target") if isinstance(body, dict) else None
 
         def _llm_update_summary(system_prompt: str, user_prompt: str) -> str:
             from run_agent import AIAgent
@@ -5330,7 +5331,7 @@ def handle_post(handler, parsed) -> bool:
             )
             return str(result.get("final_response") or "").strip()
 
-        return j(handler, summarize_update_payload(updates, llm_callback=_llm_update_summary))
+        return j(handler, summarize_update_payload(updates, llm_callback=_llm_update_summary, target=target))
 
     # ── CLI session import (POST) ──
     if parsed.path == "/api/session/import_cli":

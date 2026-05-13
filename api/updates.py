@@ -465,7 +465,7 @@ def _update_summary_prompt(details: list[dict]) -> tuple[str, str]:
     return system, '\n'.join(user_lines)
 
 
-def summarize_update_payload(updates: dict, llm_callback=None, *, use_cache: bool = True) -> dict:
+def summarize_update_payload(updates: dict, llm_callback=None, *, target: str | None = None, use_cache: bool = True) -> dict:
     """Build a human-readable What's New summary and keep regular diff comparison links.
 
     ``llm_callback`` receives ``(system_prompt, user_prompt)`` and returns text.
@@ -476,8 +476,11 @@ def summarize_update_payload(updates: dict, llm_callback=None, *, use_cache: boo
     """
     if not isinstance(updates, dict):
         updates = {}
+    requested_target = target if target in ('webui', 'agent') else None
     details = []
     for key, label in (('webui', 'WebUI'), ('agent', 'Agent')):
+        if requested_target and key != requested_target:
+            continue
         info = updates.get(key)
         if not isinstance(info, dict) or int(info.get('behind') or 0) <= 0:
             continue
@@ -518,11 +521,11 @@ def summarize_update_payload(updates: dict, llm_callback=None, *, use_cache: boo
         'generated_by': generated_by,
         'cached': False,
         'cache_key': cache_key,
+        'target': requested_target,
         'targets': details,
     }
     if use_cache:
         with _cache_lock:
-            _summary_cache.clear()
             _summary_cache[cache_key] = dict(result)
     return result
 

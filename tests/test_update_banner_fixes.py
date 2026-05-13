@@ -763,7 +763,11 @@ class TestWhatsNewSummaryToggle:
         assert 'updateSummaryDiffLinks' in src
         assert 'Regular diff comparison' in src
         assert 'updateSummarySections' in src
-        assert 'Generate summary of changes' in src
+        assert 'Generate WebUI summary' in src
+        assert 'Generate Agent summary' in src
+        assert 'showWhatsNewSummary(target.key)' in src
+        assert 'target?{[target]:data[target]}:data' in src
+        assert 'target:target||null' in src
         assert '_renderUpdateWhatsNewLinks(data,{mode' in src
         assert 'window._whatsNewSummaryEnabled' in src
 
@@ -823,6 +827,35 @@ class TestWhatsNewSummaryToggle:
         assert second['summary'] == first['summary']
         assert second['cached'] is True
         assert changed['summary'] != first['summary']
+    def test_update_summary_can_be_generated_per_target_and_cached_separately(self):
+        import api.updates as upd
+
+        upd._summary_cache.clear()
+        calls = []
+        payload = {
+            'webui': {'behind': 2, 'current_sha': 'web-a', 'latest_sha': 'web-b', 'compare_url': 'https://example.test/webui'},
+            'agent': {'behind': 1, 'current_sha': 'agent-a', 'latest_sha': 'agent-b', 'compare_url': 'https://example.test/agent'},
+        }
+
+        def fake_llm(_system, prompt):
+            calls.append(prompt)
+            if 'Agent:' in prompt:
+                return '- Agent startup is clearer.'
+            return '- WebUI settings are easier to use.'
+
+        webui = upd.summarize_update_payload(payload, target='webui', llm_callback=fake_llm)
+        agent = upd.summarize_update_payload(payload, target='agent', llm_callback=fake_llm)
+        webui_again = upd.summarize_update_payload(payload, target='webui', llm_callback=fake_llm)
+
+        assert len(calls) == 2
+        assert webui['target'] == 'webui'
+        assert agent['target'] == 'agent'
+        assert [t['name'] for t in webui['targets']] == ['webui']
+        assert [t['name'] for t in agent['targets']] == ['agent']
+        assert 'WebUI settings are easier to use.' in webui['summary']
+        assert 'Agent startup is clearer.' in agent['summary']
+        assert webui_again['cached'] is True
+        assert webui_again['summary'] == webui['summary']
 
 
 # ── Regression: force button reset on retry ──────────────────────────────────
