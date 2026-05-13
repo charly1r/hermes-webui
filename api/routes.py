@@ -63,6 +63,12 @@ _MESSAGING_SESSION_METADATA_CACHE: dict[str, object] = {
 }
 _MESSAGING_SESSION_METADATA_LOCK = threading.Lock()
 _STALE_MESSAGING_END_REASONS = {"session_reset", "session_switch"}
+_CSP_REPORT_LOGGER = logging.getLogger("csp_report")
+_CSP_REPORT_RATE_LIMIT: dict[str, list[float]] = {}
+_CSP_REPORT_RATE_LIMIT_LOCK = threading.Lock()
+_CSP_REPORT_RATE_LIMIT_WINDOW_SECONDS = 60
+_CSP_REPORT_RATE_LIMIT_MAX = 100
+_CSP_REPORT_MAX_BODY_BYTES = 64 * 1024
 
 
 # ── Profile-scoped session/project filtering (#1611, #1614) ────────────────
@@ -1081,6 +1087,69 @@ def _check_csrf(handler) -> bool:
         if origin_name == allowed_name and _ports_match(origin_scheme, origin_port, allowed_port):
             return True
     return False
+
+
+def _client_ip_for_rate_limit(handler) -> str:
+    try:
+        address = getattr(handler, "client_address", None)
+        if address:
+            return str(address[0])
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _csp_report_rate_limited(handler, *, now: float | None = None) -> bool:
+    now = time.time() if now is None else now
+    key = _client_ip_for_rate_limit(handler)
+    cutoff = now - _CSP_REPORT_RATE_LIMIT_WINDOW_SECONDS
+    with _CSP_REPORT_RATE_LIMIT_LOCK:
+        timestamps = [ts for ts in _CSP_REPORT_RATE_LIMIT.get(key, []) if ts >= cutoff]
+        if len(timestamps) >= _CSP_REPORT_RATE_LIMIT_MAX:
+            _CSP_REPORT_RATE_LIMIT[key] = timestamps
+            return True
+        timestamps.append(now)
+        _CSP_REPORT_RATE_LIMIT[key] = timestamps
+    return False
+
+
+def _send_no_content(handler, status: int = 204) -> bool:
+    handler.send_response(status)
+    handler.send_header("Content-Length", "0")
+    handler.end_headers()
+    return True
+
+
+def _read_csp_report_payload(handler):
+    try:
+        length = int(handler.headers.get("Content-Length", 0))
+    except Exception:
+        length = 0
+    if length > _CSP_REPORT_MAX_BODY_BYTES:
+        try:
+            handler.rfile.read(_CSP_REPORT_MAX_BODY_BYTES)
+        except Exception:
+            pass
+        return {"discarded": "body_too_large", "bytes": length}
+    raw = handler.rfile.read(length) if length else b"{}"
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {"invalid": True, "bytes": len(raw)}
+
+
+def _handle_csp_report(handler) -> bool:
+    """Collect browser CSP report-only violations without requiring auth."""
+    if _csp_report_rate_limited(handler):
+        _CSP_REPORT_LOGGER.warning(
+            "Dropped CSP report from %s: rate limit exceeded",
+            _client_ip_for_rate_limit(handler),
+        )
+        return _send_no_content(handler)
+
+    payload = _read_csp_report_payload(handler)
+    _CSP_REPORT_LOGGER.info("CSP report from %s: %s", _client_ip_for_rate_limit(handler), payload)
+    return _send_no_content(handler)
 
 
 def _normalize_provider_id(value: str | None) -> str:
@@ -3914,6 +3983,14 @@ def handle_get(handler, parsed) -> bool:
 def handle_post(handler, parsed) -> bool:
     """Handle all POST routes. Returns True if handled, False for 404."""
     diag = RequestDiagnostics.maybe_start("POST", parsed.path, logger=logger)
+    if parsed.path == "/api/csp-report":
+        if diag:
+            diag.stage("csp_report")
+        try:
+            return _handle_csp_report(handler)
+        finally:
+            if diag:
+                diag.finish()
     # CSRF: reject cross-origin browser requests
     if diag:
         diag.stage("csrf")
