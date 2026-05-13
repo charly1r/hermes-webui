@@ -343,7 +343,7 @@ def _prune_expired_sessions():
         _save_sessions(_sessions)
 
 
-def verify_session(cookie_value) -> bool:
+def verify_session(cookie_value: str) -> bool:
     """Verify a signed session cookie. Returns True if valid and not expired."""
     if not cookie_value or '.' not in cookie_value:
         return False
