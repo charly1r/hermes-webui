@@ -317,8 +317,9 @@ def verify_password(plain: str) -> bool:
             from api.config import save_settings
 
             save_settings({'_set_password': plain})
-            # Cache invalidated inside save_settings(); the next call to
-            # get_password_hash() will re-read and warm the cache automatically.
+            # Password re-hashed and persisted to disk using the current salt.
+            # Cache invalidation is handled by fix 2/3 (#2192) which adds the
+            # _invalidate_password_hash_cache() call inside save_settings().
             return True
     return False
 
