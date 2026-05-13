@@ -770,6 +770,11 @@ class TestWhatsNewSummaryToggle:
         assert 'Re-generate WebUI summary' in src
         assert 'Re-generate Agent summary' in src
         assert 'window._whatsNewGeneratedSummaries' in src
+        assert 'sessionStorage' in src
+        assert 'hermes-whats-new-generated-summaries' in src
+        assert 'function _loadStoredUpdateSummaries' in src
+        assert 'function _persistGeneratedSummaries' in src
+        assert 'function _pruneGeneratedSummaries' in src
         assert 'function _updateSummarySignature' in src
         assert 'function _updateSummaryButtonLabel' in src
         assert 'showWhatsNewSummary(target.key)' in src

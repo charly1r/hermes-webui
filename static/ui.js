@@ -3933,6 +3933,31 @@ function _hideUpdateSummaryPanel(){
   if(text) text.textContent='';
   if(links){links.replaceChildren();links.style.display='none';}
 }
+const WHATS_NEW_SUMMARY_STORAGE_KEY='hermes-whats-new-generated-summaries';
+function _loadStoredUpdateSummaries(){
+  window._whatsNewGeneratedSummaries=window._whatsNewGeneratedSummaries||{};
+  try{
+    const raw=sessionStorage.getItem(WHATS_NEW_SUMMARY_STORAGE_KEY);
+    if(!raw) return window._whatsNewGeneratedSummaries;
+    const stored=JSON.parse(raw);
+    if(stored&&typeof stored==='object') window._whatsNewGeneratedSummaries=stored;
+  }catch(_e){
+    try{sessionStorage.removeItem(WHATS_NEW_SUMMARY_STORAGE_KEY);}catch(_ignore){}
+  }
+  return window._whatsNewGeneratedSummaries;
+}
+function _persistGeneratedSummaries(){
+  try{sessionStorage.setItem(WHATS_NEW_SUMMARY_STORAGE_KEY,JSON.stringify(window._whatsNewGeneratedSummaries||{}));}catch(_e){}
+}
+function _pruneGeneratedSummaries(data){
+  const cache=_loadStoredUpdateSummaries();
+  const valid=new Set(_updateWhatsNewTargets(data||{}).map((target)=>target.key));
+  let changed=false;
+  Object.keys(cache).forEach((key)=>{
+    if(!valid.has(key)){delete cache[key];changed=true;}
+  });
+  if(changed) _persistGeneratedSummaries();
+}
 function _updateSummarySignature(info){
   if(!info) return '';
   return [info.current_sha||'',info.latest_sha||'',info.behind||0,info.compare_url||''].join('|');
@@ -3941,7 +3966,7 @@ function _updateSummaryButtonLabel(target,data){
   const labels=target.key==='webui'
     ? {generate:'Generate WebUI summary',view:'View generated WebUI summary',regenerate:'Re-generate WebUI summary'}
     : {generate:'Generate Agent summary',view:'View generated Agent summary',regenerate:'Re-generate Agent summary'};
-  const cache=(window._whatsNewGeneratedSummaries||{})[target.key];
+  const cache=_loadStoredUpdateSummaries()[target.key];
   const signature=_updateSummarySignature(data&&data[target.key]);
   if(cache&&cache.signature===signature&&cache.payload) return labels.view;
   if(cache&&cache.signature!==signature) return labels.regenerate;
@@ -3954,6 +3979,7 @@ function _rememberGeneratedSummary(target,payload,data){
     signature:_updateSummarySignature(data&&data[target]),
     payload:payload,
   };
+  _persistGeneratedSummaries();
 }
 function _renderUpdateSummaryPanel(payload,data,targetKey){
   const panel=$('updateSummaryPanel');
@@ -4009,7 +4035,7 @@ function _renderUpdateSummaryPanel(payload,data,targetKey){
 async function showWhatsNewSummary(target){
   const data=window._updateData||{};
   const scopedUpdates=target?{[target]:data[target]}:data;
-  const cache=target?(window._whatsNewGeneratedSummaries||{})[target]:null;
+  const cache=target?_loadStoredUpdateSummaries()[target]:null;
   const signature=target?_updateSummarySignature(data[target]):'';
   if(cache&&cache.signature===signature&&cache.payload){
     _renderUpdateSummaryPanel(cache.payload,data,target);
@@ -4044,6 +4070,7 @@ function _renderUpdateWhatsNewLinks(data){
     return;
   }
   container.style.display='block';
+  _pruneGeneratedSummaries(data);
   const useSummary=(options.mode||'')==='summary'||window._whatsNewSummaryEnabled===true;
   if(useSummary){
     targets.forEach((target,idx)=>{
