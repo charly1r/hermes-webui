@@ -1,5 +1,19 @@
 # Hermes Web UI
 
+Why this Fork?
+The main goal of this fork is to ensure a seamless experience when running the Hermes Agent in a mixed Windows/WSL (Ubuntu) environment.
+
+Key Fixes:
+Visible Skill Descriptions: Fixed a bug where skills would appear blank or "not found" because the API couldn't bridge the gap between Windows file paths and WSL.
+
+Recursive Skill Search: The WebUI now looks inside subfolders to find your SKILL.md files. This is essential if you organize your logic into nested directories (like for RimWorld modding).
+
+Automatic Metadata: When you save a new skill, the system now automatically adds the necessary name and description "tags" (frontmatter) if they are missing.
+
+Technical Setup:
+Hardware: Optimized for high-performance local LLM execution on hardware like the AMD Radeon RX 9070 XT.
+
+Environment: Built to run within WSL (Ubuntu) while interacting with Windows-based project files.
 [Hermes Agent](https://hermes-agent.nousresearch.com/) is a sophisticated autonomous agent that lives on your server, accessed via a terminal or messaging apps, that remembers what it learns and gets more capable the longer it runs.
 
 Hermes WebUI is a lightweight, dark-themed web app interface in your browser for [Hermes Agent](https://hermes-agent.nousresearch.com/).
