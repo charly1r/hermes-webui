@@ -114,14 +114,72 @@ def _active_skills_dir() -> Path:
     try:
         from api.profiles import get_active_hermes_home
 
-        return Path(get_active_hermes_home()) / "skills"
+        return _normalize_local_path(get_active_hermes_home()) / "skills"
     except Exception:
         try:
             from tools.skills_tool import SKILLS_DIR
 
-            return Path(SKILLS_DIR)
+            return _normalize_local_path(SKILLS_DIR)
         except Exception:
-            return Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser() / "skills"
+            return _normalize_local_path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))) / "skills"
+
+
+def _normalize_local_path(raw_path) -> Path:
+    """Normalize common Windows/WSL path spellings into a local Path."""
+    raw = str(raw_path or "").strip()
+    if not raw:
+        return Path(raw)
+
+    unc_match = re.match(r"^\\\\wsl(?:\.localhost|\$)?\\[^\\]+\\(.+)$", raw, flags=re.IGNORECASE)
+    if unc_match:
+        return Path("/") / Path(unc_match.group(1).replace("\\", "/"))
+
+    drive_match = re.match(r"^([A-Za-z]):[\\/](.*)$", raw)
+    if drive_match:
+        return Path("/mnt") / drive_match.group(1).lower() / Path(drive_match.group(2).replace("\\", "/"))
+
+    return Path(raw).expanduser()
+
+
+def _strip_skill_markdown_suffix(name: str) -> str:
+    return name[:-3] if name.lower().endswith(".md") else name
+
+
+def _yaml_scalar(value: str) -> str:
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def _has_skill_frontmatter(content: str) -> bool:
+    match = re.match(r"\A---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|$)", content or "", flags=re.DOTALL)
+    if not match:
+        return False
+    frontmatter = match.group(1)
+    return bool(
+        re.search(r"(?m)^\s*name\s*:", frontmatter)
+        and re.search(r"(?m)^\s*description\s*:", frontmatter)
+    )
+
+
+def _derive_skill_description(content: str, skill_name: str) -> str:
+    body = re.sub(r"\A---\s*\r?\n.*?\r?\n---(?:\s*\r?\n|$)", "", content or "", count=1, flags=re.DOTALL)
+    for line in body.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and not line.startswith("```"):
+            return line[:240]
+    return f"Reusable Hermes skill for {skill_name}."
+
+
+def _ensure_skill_frontmatter(skill_name: str, content: str, description: str | None = None) -> str:
+    if _has_skill_frontmatter(content):
+        return content
+    desc = (description or "").strip() or _derive_skill_description(content, skill_name)
+    return (
+        "---\n"
+        f"name: {_yaml_scalar(skill_name)}\n"
+        f"description: {_yaml_scalar(desc)}\n"
+        "---\n\n"
+        f"{(content or '').lstrip()}"
+    )
 
 
 def _skill_path_within(base_dir: Path, candidate: Path) -> bool:
@@ -271,10 +329,10 @@ def _skills_list_from_dir(skills_dir: Path, category: str | None = None) -> dict
 
 def _find_skill_in_dir(name: str, skills_dir: Path) -> tuple[Path | None, Path | None]:
     """Resolve a WebUI skill name inside an explicit skills directory."""
-    from agent.skill_utils import iter_skill_index_files
     from tools.skills_tool import _EXCLUDED_SKILL_DIRS, _parse_frontmatter
 
-    raw_name = str(name or "").strip().strip("/")
+    skills_dir = _normalize_local_path(skills_dir)
+    raw_name = _strip_skill_markdown_suffix(str(name or "").strip().strip("/"))
     if not raw_name or not skills_dir.exists():
         return None, None
 
@@ -285,7 +343,9 @@ def _find_skill_in_dir(name: str, skills_dir: Path) -> tuple[Path | None, Path |
             candidate_names.append(f"{namespace}/{bare}")
 
     for candidate_name in candidate_names:
-        direct_path = skills_dir / candidate_name
+        direct_path = _normalize_local_path(candidate_name)
+        if not direct_path.is_absolute():
+            direct_path = skills_dir / candidate_name
         if not _skill_path_within(skills_dir, direct_path):
             continue
         if direct_path.is_dir() and (direct_path / "SKILL.md").exists():
@@ -294,15 +354,18 @@ def _find_skill_in_dir(name: str, skills_dir: Path) -> tuple[Path | None, Path |
         if legacy_md.exists() and _skill_path_within(skills_dir, legacy_md):
             return legacy_md.parent, legacy_md
 
-    for skill_md in iter_skill_index_files(skills_dir, "SKILL.md"):
+    for skill_md in skills_dir.rglob("SKILL.md"):
+        if not _skill_path_within(skills_dir, skill_md):
+            continue
         if any(part in _EXCLUDED_SKILL_DIRS for part in skill_md.parts):
             continue
         skill_dir = skill_md.parent
-        if skill_dir.name == raw_name:
+        if _strip_skill_markdown_suffix(skill_dir.name) == raw_name:
             return skill_dir, skill_md
         try:
             frontmatter, _ = _parse_frontmatter(skill_md.read_text(encoding="utf-8")[:4000])
-            if frontmatter.get("name") == raw_name:
+            fm_name = _strip_skill_markdown_suffix(str(frontmatter.get("name", "")).strip())
+            if fm_name == raw_name:
                 return skill_dir, skill_md
         except Exception:
             continue
@@ -325,8 +388,56 @@ def _skill_not_found_payload(name: str, skills_dir: Path) -> dict:
     }
 
 
+def _skill_linked_files(skill_dir: Path, skill_md: Path) -> dict[str, list[str]]:
+    linked: dict[str, list[str]] = {}
+    try:
+        for path in skill_dir.rglob("*"):
+            if not path.is_file() or path == skill_md:
+                continue
+            if any(part in {".git", "__pycache__"} for part in path.parts):
+                continue
+            try:
+                rel = path.relative_to(skill_dir).as_posix()
+            except ValueError:
+                continue
+            group = rel.split("/", 1)[0] if "/" in rel else "files"
+            linked.setdefault(group, []).append(rel)
+    except OSError:
+        return linked
+    for files in linked.values():
+        files.sort()
+    return dict(sorted(linked.items()))
+
+
+def _jsonable_skill_metadata(value):
+    if isinstance(value, dict):
+        return {str(k): _jsonable_skill_metadata(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable_skill_metadata(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _skill_view_from_file(name: str, skill_dir: Path, skill_md: Path) -> dict:
+    from tools.skills_tool import _parse_frontmatter
+
+    content = skill_md.read_text(encoding="utf-8")
+    frontmatter, _body = _parse_frontmatter(content[:4000])
+    frontmatter = _jsonable_skill_metadata(frontmatter)
+    resolved_name = str(frontmatter.get("name") or skill_dir.name)
+    return {
+        "success": True,
+        "name": resolved_name,
+        "description": str(frontmatter.get("description") or ""),
+        "path": str(skill_md),
+        "content": content,
+        "frontmatter": frontmatter,
+        "linked_files": _skill_linked_files(skill_dir, skill_md),
+    }
+
+
 def _skill_view_from_active_dir(name: str) -> dict:
-    from tools.skills_tool import skill_view as _skill_view
 
     skills_dir = _active_skills_dir()
     skill_dir, skill_md = _find_skill_in_dir(name, skills_dir)
@@ -343,15 +454,14 @@ def _skill_view_from_active_dir(name: str) -> dict:
                     discover_plugins()
                     pm = get_plugin_manager()
                     if pm.find_plugin_skill(name) is not None or pm.list_plugin_skills(namespace):
+                        from tools.skills_tool import skill_view as _skill_view
+
                         raw = _skill_view(name)
                         return json.loads(raw) if isinstance(raw, str) else raw
             except Exception:
                 pass
         return _skill_not_found_payload(name, skills_dir)
-    target_name = str(skill_dir) if skill_dir and (skill_dir / "SKILL.md") == skill_md else str(skill_md)
-    raw = _skill_view(target_name)
-    data = json.loads(raw) if isinstance(raw, str) else raw
-    return data
+    return _skill_view_from_file(name, skill_dir, skill_md)
 
 # ── SSE app-level heartbeat (#1623) ────────────────────────────────────────
 #
@@ -9179,11 +9289,11 @@ def _handle_skill_save(handler, body):
         require(body, "name", "content")
     except ValueError as e:
         return bad(handler, str(e))
-    skill_name = body["name"].strip().lower().replace(" ", "-")
-    if not skill_name or "/" in skill_name or ".." in skill_name:
+    skill_name = _strip_skill_markdown_suffix(str(body["name"]).strip().lower().replace(" ", "-"))
+    if not skill_name or "/" in skill_name or "\\" in skill_name or ".." in skill_name:
         return bad(handler, "Invalid skill name")
-    category = body.get("category", "").strip()
-    if category and ("/" in category or ".." in category):
+    category = str(body.get("category", "")).strip()
+    if category and ("/" in category or "\\" in category or ".." in category):
         return bad(handler, "Invalid category")
     skills_dir = _active_skills_dir()
 
@@ -9198,7 +9308,8 @@ def _handle_skill_save(handler, body):
         return bad(handler, "Invalid skill path")
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_file = skill_dir / "SKILL.md"
-    skill_file.write_text(body["content"], encoding="utf-8")
+    content = _ensure_skill_frontmatter(skill_name, str(body["content"]), body.get("description"))
+    skill_file.write_text(content, encoding="utf-8")
     return j(handler, {"ok": True, "name": skill_name, "path": str(skill_file)})
 
 
@@ -9209,14 +9320,13 @@ def _handle_skill_delete(handler, body):
         return bad(handler, str(e))
     import shutil
 
-    skill_name = str(body["name"]).strip().lower().replace(" ", "-")
-    if not skill_name or "/" in skill_name or ".." in skill_name:
+    skill_name = _strip_skill_markdown_suffix(str(body["name"]).strip().lower().replace(" ", "-"))
+    if not skill_name or "/" in skill_name or "\\" in skill_name or ".." in skill_name:
         return bad(handler, "Invalid skill name")
     skills_dir = _active_skills_dir()
-    matches = [p for p in skills_dir.rglob("SKILL.md") if p.parent.name == skill_name]
-    if not matches:
+    skill_dir, _skill_md = _find_skill_in_dir(skill_name, skills_dir)
+    if not skill_dir:
         return bad(handler, "Skill not found", 404)
-    skill_dir = matches[0].parent
     shutil.rmtree(str(skill_dir))
     return j(handler, {"ok": True, "name": body["name"]})
 
