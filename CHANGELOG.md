@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **PR #2225** by @franksong2702 (refs #2224) — Adds an Extra Large option to Settings → Appearance → Font size for tablet and large-desktop readability. The new `xlarge` value is accepted by the persisted settings contract, appears alongside the existing Small / Default / Large picker options, and scales the same key UI text surfaces already covered by the font-size preference: sidebar session rows, chat message bodies/headings/code/tables, the composer textarea, workspace file rows, and app-level em/rem text.
+
 ### Fixed
 
 - **PR #2227** by @theh4v0c (closes #2223 — critical) — Context compression no longer destroys session history. The previous implementation renamed `old_sid.json` → `new_sid.json` before the new compressed session had been saved, destroying the only persistent copy of the full conversation. When the summarisation LLM call also failed, the user was left with zero recoverable messages and the bug report `Summary generation was unavailable. N message(s) were removed to free context space but could not be summarized.` text with no way to scroll back. The fix removes the destructive `old_path.rename(new_path)` call: `old_sid.json` is preserved intact as an immutable pre-compression archive, `new_sid.json` is created fresh via `s.save()`, and `parent_session_id` is set on the continuation session so the frontend can traverse the lineage chain back to the original. Even when summarisation or `s.save()` fails, the original conversation file survives on disk. New 106-line regression test file covers the no-rename invariant, parent_session_id stamping, and marker-only-result preservation.
